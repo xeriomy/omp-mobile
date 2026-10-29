@@ -160,7 +160,7 @@ The app is a minimal Tauri 2 + SvelteKit shell. It shows a build-smoke screen an
 
 ## Files changed in this milestone
 
-- `.github/workflows/android-debug-apk.yml` — pinned x86_64 Android debug APK workflow; docs-only changes skip, manual `workflow_dispatch` always runs.
+- `.github/workflows/android-debug-apk.yml` — pinned x86_64 Android debug APK workflow; docs-only PRs/pushes skip, manual `workflow_dispatch` always runs. A docs-only commit in a mixed PR still triggers because GitHub evaluates the whole PR diff.
 - `apps/mobile/` — minimal Tauri 2 + SvelteKit app, pinned frontend and Rust dependencies, icon, capabilities.
 - `scripts/validate-manifest.mjs` — manifest and stale-reference validation.
 - `PACK_MANIFEST.json` — removed `prompts/` entries, added the app, workflow, and validator.

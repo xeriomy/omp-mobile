@@ -59,7 +59,7 @@ npm run tauri -- android build --debug --apk --target aarch64 --ci
 
 Android builds require JDK 17, Android SDK platform `android-37.0`, Build Tools `36.0.0`, NDK `29.0.13846066`, and the Rust `aarch64-linux-android` target. The generated `src-tauri/gen/` tree is intentionally untracked and recreated by CI.
 
-The CI workflow is the supported APK build path: it installs the pinned toolchains, runs frontend and Rust checks, generates the Android project, builds the debug APK, verifies its size/hash/ABI, and uploads it as an artifact. Documentation-only changes are skipped by the path filter; run the workflow manually from the Actions tab when needed. A successful compile is not proof of on-device runtime behavior.
+The CI workflow is the supported APK build path: it installs the pinned toolchains, runs frontend and Rust checks, generates the Android project, builds the debug APK, verifies its size/hash/ABI, and uploads it as an artifact. Documentation-only pull requests and pushes are skipped by the path filter; run the workflow manually from the Actions tab when needed. A docs-only commit inside a pull request that already contains code still triggers a run, because GitHub evaluates the whole pull-request diff. A successful compile is not proof of on-device runtime behavior.
 
 ## Verified CI artifact
 

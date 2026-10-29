@@ -8,9 +8,9 @@
 - **Milestone:** Phase 0 — proof of life and Android build gate
 - **Status:** OMP RPC round trip **PASS**. Android debug APK CI build **PASS**. On-device install and WebView smoke render **PASS** (visual evidence). Bridge/loopback **NOT RUN**.
 - **Branch:** `ci-apk-build`
-- **Code/evidence commit:** `287f491` (`ci: parse minSdkVersion from aapt2 badging`)
+- **Code/evidence commit:** `d8ca5a8` (`ci: skip docs-only runs; record on-device smoke render`)
 - **Pull request:** https://github.com/xeriomy/omp-mobile/pull/1
-- **Working tree:** documentation update in progress; generated `apps/mobile/src-tauri/gen/` is intentionally untracked.
+- **Working tree:** docs-only checkpoint update in progress; generated `apps/mobile/src-tauri/gen/` is intentionally untracked.
 - **Last updated:** 2026-10-29
 
 ## Environment (measured)
@@ -92,6 +92,7 @@ No real prompt was sent. This host had no provider credentials, so prompt acknow
 - Head SHA: `287f49119bccf138b25e4e2e5482bab5a4dcbf48`
 - Result: **success**, job `Build debug APK (arm64-v8a)` in 4m29s
 - All steps passed: frontend checks, Rust spike checks, manifest validation, Android init, generated toolchain pins, APK build, APK verification, artifact upload.
+- Final workflow version with the docs-only path filter also passed: run `40950435431`, same package/ABI/size/SDK levels, SHA-256 `98996d96d6dcdb544881c6e863d4187b7ac208c184fcb7b41a4e81b926efe07c`. Build output is not byte-identical across runs.
 
 ### Artifact
 

@@ -184,7 +184,7 @@ jobs:
           BADGING="$("$AAPT2" dump badging "$APK")"
           printf '%s\n' "$BADGING" | sed -n '1,20p'
           PACKAGE_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
-          MIN_SDK="$(printf '%s\n' "$BADGING" | sed -n "s/^sdkVersion:'\([^']*\)'.*/\1/p")"
+          MIN_SDK="$(printf '%s\n' "$BADGING" | sed -n "s/^minSdkVersion:'\([^']*\)'.*/\1/p")"
           TARGET_SDK="$(printf '%s\n' "$BADGING" | sed -n "s/^targetSdkVersion:'\([^']*\)'.*/\1/p")"
           NATIVE_CODE="$(printf '%s\n' "$BADGING" | sed -n 's/^native-code: //p' | tr -d "'")"
           echo "Package: $PACKAGE_NAME"

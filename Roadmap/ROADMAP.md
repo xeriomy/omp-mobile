@@ -11,7 +11,8 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 - [x] Run a minimal real `ready` → protocol negotiation (if advertised) → `get_state` exchange.
 - [x] Verify child stdout/stderr separation and graceful shutdown.
 - [x] Build a minimal Tauri 2 Android project or confirm an existing one builds. **Done in CI:** GitHub Actions run `40948549197` built and verified an arm64-v8a debug APK; see `Checkpoint/CURRENT.md`.
-- [ ] Verify app-to-Termux loopback HTTP + WebSocket and actual app origin on device. **Blocked:** APK exists, but no `adb`/device install, launch, WebView, or loopback test has run.
+- [x] Install the CI APK on the Android 15 arm64 device and launch it. **Done:** user-provided screenshot shows the WebView smoke screen; no `adb logcat` captured.
+- [ ] Verify app-to-Termux loopback HTTP + WebSocket and actual app origin on device. **Blocked:** APK launches, but no bridge, `adb logcat`, WebView origin, or loopback test has run.
 - **Exit:** documented live round trip and a decision for unresolved integration risks. OMP side and APK build met; on-device runtime open.
 
 ## Phase 1 — Rust bridge foundation
@@ -89,4 +90,4 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 - **Exit:** no public unprotected bridge; remote mode is opt-in and security reviewed.
 
 ## Immediate next action
-Install the verified CI debug APK on the arm64 Android device, launch it, and capture `adb logcat` plus a screenshot. If the WebView renders the smoke screen, start the Phase 1 bridge; otherwise debug the Tauri Android runtime before adding UI features.
+Capture `adb logcat` for a clean launch and lifecycle check, then implement the Phase 1 bridge and verify loopback HTTP/WebSocket from the installed app. The smoke screen render is no longer the blocker.

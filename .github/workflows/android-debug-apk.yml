@@ -3,8 +3,25 @@ name: Android debug APK
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "Plan/**"
+      - "Specs/**"
+      - "Roadmap/**"
+      - "Checkpoint/**"
+      - "LICENSE"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "Plan/**"
+      - "Specs/**"
+      - "Roadmap/**"
+      - "Checkpoint/**"
+      - "LICENSE"
+  # Manual runs are never filtered by paths-ignore.
   workflow_dispatch:
 
 permissions:

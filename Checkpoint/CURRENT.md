@@ -1,12 +1,12 @@
 # Current Checkpoint
 
-> Phase 0 OMP RPC proof plus the first successful Android debug APK build in GitHub Actions. Measured on 2026-10-29. On-device installation, WebView, bridge, and loopback tests remain unrun.
+> Phase 0 OMP RPC proof, the first successful Android debug APK build in GitHub Actions, and an on-device install/WebView smoke render. Measured on 2026-10-29. Bridge, loopback, and `adb logcat` tests remain unrun.
 
 ## Snapshot
 
 - **Project:** OMP Client
 - **Milestone:** Phase 0 — proof of life and Android build gate
-- **Status:** OMP RPC round trip **PASS**. Android debug APK CI build **PASS**. On-device runtime **NOT RUN**.
+- **Status:** OMP RPC round trip **PASS**. Android debug APK CI build **PASS**. On-device install and WebView smoke render **PASS** (visual evidence). Bridge/loopback **NOT RUN**.
 - **Branch:** `ci-apk-build`
 - **Code/evidence commit:** `287f491` (`ci: parse minSdkVersion from aapt2 badging`)
 - **Pull request:** https://github.com/xeriomy/omp-mobile/pull/1
@@ -18,6 +18,7 @@
 | Item | Value |
 |---|---|
 | Local host | Ubuntu 26.04.1 LTS, aarch64, PRoot distro on Android 15 (`arm64-v8a`, model `23021RAAEG`) |
+| Test device | Android 15, `arm64-v8a`, model `23021RAAEG` |
 | Local Rust | `rustc 1.91.1`, `cargo 1.91.1`; `aarch64-unknown-linux-gnu` host target |
 | Local Node / npm | Node `v26.13.0`, npm `11.20.0` |
 | Local Java | OpenJDK `17.0.20.1` |
@@ -110,14 +111,24 @@ No real prompt was sent. This host had no provider credentials, so prompt acknow
 
 The artifact was downloaded and re-checked locally: size and SHA-256 match the CI values. `apksigner verify --print-certs` passes and reports the Android debug certificate. `unzip -l` confirms exactly one ABI (`arm64-v8a`) and the native library. This is a debug-signed build, not a release artifact.
 
+### On-device evidence
+
+A user installed the CI APK on the target Android 15 device (`arm64-v8a`, model `23021RAAEG`) and supplied a screenshot of the running app on 2026-10-29. The screen shows:
+
+- `OMP Client` and `Android build smoke test`;
+- the `Bridge not connected` panel with the statement that the APK does not contact OMP, the bridge, or any network service;
+- `Tauri 2`, `Svelte + TypeScript`, `Android debug`, and `v0.1.0`.
+
+This verifies installation, process launch, WebView rendering, and the static smoke UI on a real arm64 device. It does **not** verify `adb logcat`, lifecycle/keyboard behavior, loopback networking, bridge connectivity, or any OMP interaction. No runtime logs were captured.
+
 ### What the APK is
 
 The app is a minimal Tauri 2 + SvelteKit shell. It shows a build-smoke screen and states that the bridge is not connected. It does not contain a bridge, does not spawn OMP, and does not claim engine state.
 
 ### What was not tested
 
-- Installation or launch on a real Android device or emulator.
-- Tauri WebView origin, page rendering, keyboard/lifecycle behavior, or `adb logcat`.
+- `adb logcat`, keyboard/lifecycle behavior, rotation, or process death/recovery.
+- Tauri WebView origin inspection or Chrome DevTools inspection.
 - Loopback HTTP/WebSocket access from the app to a bridge.
 - OMP prompt, streaming, abort, extension UI, or approval paths.
 - Release signing, Play Store packaging, or AAB output.
@@ -142,12 +153,13 @@ The app is a minimal Tauri 2 + SvelteKit shell. It shows a build-smoke screen an
 | CI APK build | GitHub Actions run `40948549197` | PASS |
 | CI APK verification | `aapt2 dump badging`, `unzip -l`, size/hash assertions | PASS |
 | CI artifact re-check | downloaded artifact, `sha256sum`, `apksigner verify` | PASS |
-| Device install/launch | real device or emulator | NOT RUN |
+| Device install/launch/WebView render | user-installed CI APK on Android 15 arm64; screenshot | PASS (visual evidence only) |
+| Device logs/lifecycle | `adb logcat`, keyboard, rotation, process death | NOT RUN |
 | Bridge/loopback/WebSocket | app plus bridge | NOT RUN |
 
 ## Files changed in this milestone
 
-- `.github/workflows/android-debug-apk.yml` — pinned x86_64 Android debug APK workflow.
+- `.github/workflows/android-debug-apk.yml` — pinned x86_64 Android debug APK workflow; docs-only changes skip, manual `workflow_dispatch` always runs.
 - `apps/mobile/` — minimal Tauri 2 + SvelteKit app, pinned frontend and Rust dependencies, icon, capabilities.
 - `scripts/validate-manifest.mjs` — manifest and stale-reference validation.
 - `PACK_MANIFEST.json` — removed `prompts/` entries, added the app, workflow, and validator.
@@ -161,7 +173,7 @@ No secrets, signing keys, provider credentials, prompts, or private workspace co
 
 ## Known issues / blockers
 
-- No on-device install or launch test. The APK may install but the WebView page, origin, and lifecycle are unverified.
+- No `adb logcat`, WebView origin inspection, keyboard/rotation test, or process-death recovery test. Installation, launch, and the static smoke render are verified only by the supplied screenshot.
 - No bridge implementation, so loopback HTTP/WebSocket and authentication tests cannot run yet.
 - Prompt acknowledgement versus `prompt_result`, streaming, abort, extension UI, and approvals remain runtime-untested without provider credentials.
 - The CI APK is a 121 MB debug/universal build with an unstripped native library. It is not a release or size-optimized artifact.
@@ -181,4 +193,4 @@ No secrets, signing keys, provider credentials, prompts, or private workspace co
 
 ## Next best action
 
-Install the CI APK on the arm64 Android device, launch it, and capture `adb logcat` plus a screenshot. If the WebView renders the smoke screen, start Phase 1 bridge work; if not, debug the Tauri Android runtime before adding UI features.
+Capture `adb logcat` for a clean launch and lifecycle check, then implement the Phase 1 bridge and test loopback HTTP/WebSocket from the installed app. The smoke screen render is no longer the blocker.

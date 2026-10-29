@@ -8,7 +8,7 @@ Android-first mobile client for **OMP (oh-my-pi)**, inspired by OpenChamber's mo
 - **Mobile shell:** minimal Tauri 2 + Svelte + TypeScript + Vite application exists at `apps/mobile`. It shows an honest build-smoke screen and does not contact OMP or the bridge.
 - **Android APK:** the GitHub Actions workflow built and uploaded a verified arm64-v8a debug APK on 2026-10-29. See [Verified CI artifact](#verified-ci-artifact). It is debug-signed, not a release.
 - **Bridge:** not implemented yet. `apps/bridge` is planned for Phase 1.
-- **On-device runtime:** not tested. WebView origin, loopback HTTP/WebSocket, lifecycle, and `adb logcat` remain open.
+- **On-device runtime:** the CI APK installed and rendered the smoke screen on an Android 15 arm64 device (user-provided screenshot). Loopback HTTP/WebSocket, WebView origin, lifecycle, and `adb logcat` remain open.
 
 ## Product decisions
 
@@ -59,7 +59,7 @@ npm run tauri -- android build --debug --apk --target aarch64 --ci
 
 Android builds require JDK 17, Android SDK platform `android-37.0`, Build Tools `36.0.0`, NDK `29.0.13846066`, and the Rust `aarch64-linux-android` target. The generated `src-tauri/gen/` tree is intentionally untracked and recreated by CI.
 
-The CI workflow is the supported APK build path: it installs the pinned toolchains, runs frontend and Rust checks, generates the Android project, builds the debug APK, verifies its size/hash/ABI, and uploads it as an artifact. A successful compile is not proof of on-device runtime behavior.
+The CI workflow is the supported APK build path: it installs the pinned toolchains, runs frontend and Rust checks, generates the Android project, builds the debug APK, verifies its size/hash/ABI, and uploads it as an artifact. Documentation-only changes are skipped by the path filter; run the workflow manually from the Actions tab when needed. A successful compile is not proof of on-device runtime behavior.
 
 ## Verified CI artifact
 
@@ -76,7 +76,7 @@ The `Android debug APK` workflow run [40948549197](https://github.com/xeriomy/om
 | ABI | `arm64-v8a` |
 | Signing | Android debug certificate (V2), not a release key |
 
-The downloaded artifact was re-checked locally: size and SHA-256 match, `apksigner verify --print-certs` passes, and the APK contains exactly one ABI with `lib/arm64-v8a/libomp_client_lib.so`. Installation, launch, WebView rendering, loopback networking, and `adb logcat` are **not** verified.
+The downloaded artifact was re-checked locally: size and SHA-256 match, `apksigner verify --print-certs` passes, and the APK contains exactly one ABI with `lib/arm64-v8a/libomp_client_lib.so`. A user installed the CI APK on an Android 15 arm64 device and supplied a screenshot of the running smoke screen, which verifies installation, launch, and WebView rendering. `adb logcat`, lifecycle, loopback networking, bridge connectivity, and OMP interaction are **not** verified.
 
 ## Validate repository metadata
 

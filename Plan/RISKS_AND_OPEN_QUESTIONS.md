@@ -15,7 +15,7 @@
 ### R3. Android WebView loopback/CORS behavior
 - **Risk:** Tauri Android's WebView cannot reach the bridge using the planned `http://127.0.0.1`/WebSocket configuration without platform-specific configuration.
 - **Mitigation:** implement an early physical-device spike, inspect actual origins and logs, and only then finalize listener, cleartext, CORS, and secure-storage decisions.
-- **Phase 0 status:** build gate passed. GitHub Actions run `40948549197` produced a verified arm64-v8a debug APK on an x86_64 runner. On-device WebView, loopback, origin, and `adb logcat` tests remain unrun, so the risk itself is still open.
+- **Phase 0 status:** build gate passed. GitHub Actions run `40948549197` produced a verified arm64-v8a debug APK on an x86_64 runner. A user installed it on the Android 15 arm64 device and supplied a screenshot of the rendered smoke screen. Loopback, origin, lifecycle, and `adb logcat` tests remain unrun, so the risk itself is still open.
 
 ### R4. Secure token storage
 - **Risk:** selected storage plugin is unsupported, stale, or uses unprotected storage on Android.

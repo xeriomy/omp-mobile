@@ -6,7 +6,7 @@ Android-first mobile client for **OMP (oh-my-pi)**, inspired by OpenChamber's mo
 
 - **OMP RPC proof:** verified against the real `omp/18.13.3` binary. The ready frame, protocol v2 negotiation, and an id-correlated `get_state` succeeded; the child exited cleanly. See [`Checkpoint/CURRENT.md`](Checkpoint/CURRENT.md).
 - **Mobile shell:** minimal Tauri 2 + Svelte + TypeScript + Vite application exists at `apps/mobile`. It shows an honest build-smoke screen and does not contact OMP or the bridge.
-- **Android APK:** built by the GitHub Actions workflow on an x86_64 runner. A real APK artifact is not claimed until the workflow completes and the artifact is verified.
+- **Android APK:** the GitHub Actions workflow built and uploaded a verified arm64-v8a debug APK on 2026-10-29. See [Verified CI artifact](#verified-ci-artifact). It is debug-signed, not a release.
 - **Bridge:** not implemented yet. `apps/bridge` is planned for Phase 1.
 - **On-device runtime:** not tested. WebView origin, loopback HTTP/WebSocket, lifecycle, and `adb logcat` remain open.
 
@@ -60,6 +60,23 @@ npm run tauri -- android build --debug --apk --target aarch64 --ci
 Android builds require JDK 17, Android SDK platform `android-37.0`, Build Tools `36.0.0`, NDK `29.0.13846066`, and the Rust `aarch64-linux-android` target. The generated `src-tauri/gen/` tree is intentionally untracked and recreated by CI.
 
 The CI workflow is the supported APK build path: it installs the pinned toolchains, runs frontend and Rust checks, generates the Android project, builds the debug APK, verifies its size/hash/ABI, and uploads it as an artifact. A successful compile is not proof of on-device runtime behavior.
+
+## Verified CI artifact
+
+The `Android debug APK` workflow run [40948549197](https://github.com/xeriomy/omp-mobile/actions/runs/40948549197) completed successfully on 2026-10-29 (PR [#1](https://github.com/xeriomy/omp-mobile/pull/1)).
+
+| Field | Value |
+|---|---|
+| Artifact | `omp-client-android-debug-1363b30f13537a67033baa1b1468055590a11b43` |
+| APK path in CI | `apps/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` |
+| Size | `121146141` bytes |
+| SHA-256 | `6c650a9ac8039ba57ef980c104a4184b13d3ac802fc02b9f7a6ca024e63ee342` |
+| Package / version | `com.ompclient.mobile` / `0.1.0` (`versionCode 1000`) |
+| minSdk / targetSdk / compileSdk | `24` / `37` / `37` |
+| ABI | `arm64-v8a` |
+| Signing | Android debug certificate (V2), not a release key |
+
+The downloaded artifact was re-checked locally: size and SHA-256 match, `apksigner verify --print-certs` passes, and the APK contains exactly one ABI with `lib/arm64-v8a/libomp_client_lib.so`. Installation, launch, WebView rendering, loopback networking, and `adb logcat` are **not** verified.
 
 ## Validate repository metadata
 

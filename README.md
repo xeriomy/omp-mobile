@@ -1,8 +1,16 @@
-# OMP Client — Planning Pack
+# OMP Client
 
-A planning/specification pack for an Android-first mobile client for **OMP (oh-my-pi)**, inspired by OpenChamber's mobile-client/server pattern and tailored to OMP's native RPC protocol.
+Android-first mobile client for **OMP (oh-my-pi)**, inspired by OpenChamber's mobile client/server pattern and built around OMP's native RPC protocol.
 
-## Product decisions already made
+## Current status
+
+- **OMP RPC proof:** verified against the real `omp/18.13.3` binary. The ready frame, protocol v2 negotiation, and an id-correlated `get_state` succeeded; the child exited cleanly. See [`Checkpoint/CURRENT.md`](Checkpoint/CURRENT.md).
+- **Mobile shell:** minimal Tauri 2 + Svelte + TypeScript + Vite application exists at `apps/mobile`. It shows an honest build-smoke screen and does not contact OMP or the bridge.
+- **Android APK:** the GitHub Actions workflow built and uploaded a verified arm64-v8a debug APK on 2026-10-29. See [Verified CI artifact](#verified-ci-artifact). It is debug-signed, not a release.
+- **Bridge:** not implemented yet. `apps/bridge` is planned for Phase 1.
+- **On-device runtime:** the CI APK installed and rendered the smoke screen on an Android 15 arm64 device (user-provided screenshot). Loopback HTTP/WebSocket, WebView origin, lifecycle, and `adb logcat` remain open.
+
+## Product decisions
 
 - **Mobile shell:** Tauri 2.
 - **UI:** Svelte + TypeScript + CSS, designed mobile-first.
@@ -12,15 +20,7 @@ A planning/specification pack for an Android-first mobile client for **OMP (oh-m
 - **Local-first:** first target is the same Android device, with the bridge started from Termux and the Android app connecting to loopback. Remote/LAN access is later, opt-in work.
 - **UX reference:** OpenChamber's mobile information architecture and interaction quality. Reimplement the experience; do not copy branding, assets, or source code without confirming their license and compatibility.
 
-## How to use this pack
-
-1. Put these files in the root of a new repository, or merge them into the target repository without overwriting valuable existing project guidance.
-2. Read [`AGENTS.md`](AGENTS.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md).
-3. Give the coding agent [`prompts/MASTER_IMPLEMENTATION_PROMPT.md`](prompts/MASTER_IMPLEMENTATION_PROMPT.md).
-4. Tell the agent to execute [`prompts/PHASE_0_SPIKE_PROMPT.md`](prompts/PHASE_0_SPIKE_PROMPT.md) first. Phase 0 must prove a real OMP RPC round trip before major UI work.
-5. Require evidence in [`Checkpoint/CURRENT.md`](Checkpoint/CURRENT.md) at the end of every work session or milestone.
-
-## Suggested repository layout
+## Repository layout
 
 ```text
 .
@@ -28,21 +28,61 @@ A planning/specification pack for an Android-first mobile client for **OMP (oh-m
 ├── ARCHITECTURE.md
 ├── README.md
 ├── apps/
-│   ├── mobile/                 # Tauri 2 + Svelte + TypeScript
-│   │   ├── src/                # Frontend UI
-│   │   └── src-tauri/          # Tauri/Rust native shell
-│   └── bridge/                 # Standalone Rust HTTP/WebSocket service
-├── packages/
-│   └── contracts/              # OpenAPI + WebSocket event schemas
+│   └── mobile/                 # Tauri 2 + Svelte + TypeScript app (current)
+├── spike/
+│   └── rpc-harness/            # Phase 0 Rust OMP RPC harness
+├── scripts/
+│   └── validate-manifest.mjs   # PACK_MANIFEST.json integrity check
+├── .github/workflows/
+│   └── android-debug-apk.yml   # x86_64 debug APK build
 ├── Plan/
 ├── Specs/
 ├── Roadmap/
 ├── Checkpoint/
-├── docs/
-└── prompts/
+└── docs/
 ```
 
-This is a proposed layout, not a claim that code already exists. If the target repository already has a sensible layout, audit it and adapt rather than blindly moving files.
+`apps/bridge` and `packages/contracts` are planned but not present yet. Do not treat the layout sketch in [`ARCHITECTURE.md`](ARCHITECTURE.md) as a claim that they exist.
+
+## Build the mobile shell
+
+Requires Node.js 24 and npm 11. The Tauri CLI is installed from the lockfile.
+
+```sh
+cd apps/mobile
+npm ci
+npm run check
+npm run build
+npm run tauri -- android init --ci --skip-targets-install
+npm run tauri -- android build --debug --apk --target aarch64 --ci
+```
+
+Android builds require JDK 17, Android SDK platform `android-37.0`, Build Tools `36.0.0`, NDK `29.0.13846066`, and the Rust `aarch64-linux-android` target. The generated `src-tauri/gen/` tree is intentionally untracked and recreated by CI.
+
+The CI workflow is the supported APK build path: it installs the pinned toolchains, runs frontend and Rust checks, generates the Android project, builds the debug APK, verifies its size/hash/ABI, and uploads it as an artifact. Documentation-only pull requests and pushes are skipped by the path filter; run the workflow manually from the Actions tab when needed. A docs-only commit inside a pull request that already contains code still triggers a run, because GitHub evaluates the whole pull-request diff. A successful compile is not proof of on-device runtime behavior.
+
+## Verified CI artifact
+
+The `Android debug APK` workflow run [40948549197](https://github.com/xeriomy/omp-mobile/actions/runs/40948549197) completed successfully on 2026-10-29 (PR [#1](https://github.com/xeriomy/omp-mobile/pull/1)).
+
+| Field | Value |
+|---|---|
+| Artifact | `omp-client-android-debug-1363b30f13537a67033baa1b1468055590a11b43` |
+| APK path in CI | `apps/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` |
+| Size | `121146141` bytes |
+| SHA-256 | `6c650a9ac8039ba57ef980c104a4184b13d3ac802fc02b9f7a6ca024e63ee342` |
+| Package / version | `com.ompclient.mobile` / `0.1.0` (`versionCode 1000`) |
+| minSdk / targetSdk / compileSdk | `24` / `37` / `37` |
+| ABI | `arm64-v8a` |
+| Signing | Android debug certificate (V2), not a release key |
+
+The downloaded artifact was re-checked locally: size and SHA-256 match, `apksigner verify --print-certs` passes, and the APK contains exactly one ABI with `lib/arm64-v8a/libomp_client_lib.so`. A user installed the CI APK on an Android 15 arm64 device and supplied a screenshot of the running smoke screen, which verifies installation, launch, and WebView rendering. `adb logcat`, lifecycle, loopback networking, bridge connectivity, and OMP interaction are **not** verified.
+
+## Validate repository metadata
+
+```sh
+node scripts/validate-manifest.mjs
+```
 
 ## Non-negotiable engineering rules
 
@@ -52,7 +92,7 @@ This is a proposed layout, not a claim that code already exists. If the target r
 - Never expose an unauthenticated bridge on LAN or the public internet. Bind to loopback by default.
 - Do not work around an OMP approval/permission flow by silently auto-approving tools.
 - Use tests, formatter, linter, type checker, LSP diagnostics, and debugger/logcat/browser DevTools where available. If a tool is unavailable, record the limitation and use a verifiable alternative.
-- Keep the checkpoint and roadmap truthful. “Implemented” means tested, not merely written.
+- Keep the checkpoint and roadmap truthful. "Implemented" means tested, not merely written.
 
 ## Useful upstream references
 
@@ -62,6 +102,7 @@ This is a proposed layout, not a claim that code already exists. If the target r
 - OpenChamber mobile architecture: https://github.com/openchamber/openchamber/blob/main/packages/mobile/README.md
 - OpenChamber mobile UX docs: https://github.com/openchamber/openchamber/blob/main/packages/docs/content/docs/mobile.mdx
 - Tauri development: https://v2.tauri.app/develop/
+- Tauri Android prerequisites: https://v2.tauri.app/start/prerequisites/#android
 - Tauri Android packaging: https://v2.tauri.app/distribute/google-play/
 
-These links are starting points. The agent must verify current behavior and version compatibility while implementing.
+These links are starting points. Verify current behavior and version compatibility while implementing.

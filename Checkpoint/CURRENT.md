@@ -1,33 +1,32 @@
 # Current Checkpoint
 
-> Phase 0 audit and real OMP RPC spike. Measured on 2026-10-29 in the target workspace. Android APK build and on-device loopback test remain blocked by the available toolchain.
+> Phase 0 OMP RPC proof, the first successful Android debug APK build in GitHub Actions, and an on-device install/WebView smoke render. Measured on 2026-10-29. Bridge, loopback, and `adb logcat` tests remain unrun.
 
 ## Snapshot
 
 - **Project:** OMP Client
-- **Milestone:** Phase 0 — audit and proof of life
-- **Status:** Partial. OMP RPC round trip **PASS**. Tauri/Android build **BLOCKED** by missing x86_64 Android toolchain.
-- **Branch:** `master`
-- **Current commit:** `NONE` — repository has no commits; `git rev-parse HEAD` exits 128 (`unknown revision`).
-- **Working tree:** all files untracked (`git status --short --branch` reports `## No commits yet on master`). No reset, stash, checkout, or deletion was performed.
+- **Milestone:** Phase 0 — proof of life and Android build gate
+- **Status:** OMP RPC round trip **PASS**. Android debug APK CI build **PASS**. On-device install and WebView smoke render **PASS** (visual evidence). Bridge/loopback **NOT RUN**.
+- **Branch:** `ci-apk-build`
+- **Code/evidence commit:** `d8ca5a8` (`ci: skip docs-only runs; record on-device smoke render`)
+- **Pull request:** https://github.com/xeriomy/omp-mobile/pull/1
+- **Working tree:** docs-only checkpoint update in progress; generated `apps/mobile/src-tauri/gen/` is intentionally untracked.
 - **Last updated:** 2026-10-29
 
 ## Environment (measured)
 
 | Item | Value |
 |---|---|
-| OS / arch | Ubuntu 26.04.1 LTS (Resolute Raccoon), aarch64, PRoot distro on Android |
-| Kernel | Linux 6.17.0-PRoot-Distro aarch64 |
-| Android | 15, `arm64-v8a`, device model `23021RAAEG` |
-| Termux presence | `/data/data/com.termux` exists; `TERMUX_VERSION` unset |
-| Rust | `rustc 1.99.1 (58cf8f9c3 2026-10-13)`, `cargo 1.99.1 (5f94df478 2026-08-27)` |
-| Rust components | `rustfmt 1.10.0-stable`, `clippy 0.1.99`; only `aarch64-unknown-linux-gnu` target installed |
-| C toolchain | Ubuntu `gcc 15.2.0` at `/usr/bin/gcc`; Termux `cc` earlier in PATH cannot link Ubuntu Rust binaries |
-| Node / npm | Node `v26.13.0`, npm `11.20.0`; pnpm, yarn, bun not on PATH |
-| Java | Not installed (`java`, `javac` absent); `JAVA_HOME` unset |
-| Android SDK | `ANDROID_HOME` and `ANDROID_SDK_ROOT` unset; `sdkmanager`, `adb`, `gradle` absent |
-| Tauri CLI | Not installed. npm registry latest `@tauri-apps/cli` is `2.12.4`; not used for a build. |
-| OMP | `omp/18.13.3`, official `omp-linux-arm64` release asset at `/tmp/opencode/omp-bin/omp-linux-arm64` |
+| Local host | Ubuntu 26.04.1 LTS, aarch64, PRoot distro on Android 15 (`arm64-v8a`, model `23021RAAEG`) |
+| Test device | Android 15, `arm64-v8a`, model `23021RAAEG` |
+| Local Rust | `rustc 1.91.1`, `cargo 1.91.1`; `aarch64-unknown-linux-gnu` host target |
+| Local Node / npm | Node `v26.13.0`, npm `11.20.0` |
+| Local Java | OpenJDK `17.0.20.1` |
+| Local Android SDK | cmdline-tools 19.0 and Build Tools `37.0.0` are x86_64 ELF; cannot execute on this aarch64 host |
+| CI runner | GitHub Actions `ubuntu-24.04`, x86_64 |
+| CI Node / Java / Rust | Node `24`, Temurin JDK `17`, Rust `1.91.1` |
+| CI Android | cmdline-tools `19.0`, platform `android-37.0`, Build Tools `36.0.0`, NDK `29.0.13846066` |
+| OMP | `omp/18.13.3`, official `omp-linux-arm64` release asset |
 | OMP checksum | SHA-256 `981f08df6c6344356b31aa696fdd810b8b5fa8c8851ba926d3940e793d47cc3a`, matches release `SHA256SUMS.txt` |
 
 ## OMP protocol evidence
@@ -83,81 +82,116 @@ Shutdown: stdin closed, remaining stdout drained, child exited with code `0`; st
 
 No real prompt was sent. This host had no provider credentials, so prompt acknowledgement versus `prompt_result`, streaming, abort, extension dialogs, and approval behavior remain **not runtime-tested**. Do not claim them from this checkpoint.
 
-## Rust harness
+## Android debug APK CI evidence
 
-Location: `spike/rpc-harness` (temporary Phase 0 crate; promote proven parts into `apps/bridge` later).
+### Run
 
-It spawns OMP with explicit arguments and working directory, drains stdout and stderr on separate threads, parses JSONL, reassembles bounded `rpc_chunk` frames, negotiates v2, correlates responses by ID, requests `get_state`, closes stdin, and requires clean exit.
+- Workflow: `.github/workflows/android-debug-apk.yml`
+- Run: https://github.com/xeriomy/omp-mobile/actions/runs/40948549197
+- Trigger: `pull_request` for PR #1
+- Head SHA: `287f49119bccf138b25e4e2e5482bab5a4dcbf48`
+- Result: **success**, job `Build debug APK (arm64-v8a)` in 4m29s
+- All steps passed: frontend checks, Rust spike checks, manifest validation, Android init, generated toolchain pins, APK build, APK verification, artifact upload.
+- Final workflow version with the docs-only path filter also passed: run `40950435431`, same package/ABI/size/SDK levels, SHA-256 `98996d96d6dcdb544881c6e863d4187b7ac208c184fcb7b41a4e81b926efe07c`. Build output is not byte-identical across runs.
 
-Unit tests cover blank lines, malformed JSON, in-order chunk reassembly, active-sequence tracking, mismatched chunk IDs, out-of-order chunks, length mismatch, oversized reassembly, out-of-order response correlation, and unknown/non-response frames.
+### Artifact
 
-## Tauri / Android evidence
+| Field | Value |
+|---|---|
+| CI path | `apps/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` |
+| Size | `121146141` bytes |
+| SHA-256 | `6c650a9ac8039ba57ef980c104a4184b13d3ac802fc02b9f7a6ca024e63ee342` |
+| Package | `com.ompclient.mobile` |
+| Version | `0.1.0` (`versionCode 1000`) |
+| minSdk / targetSdk | `24` / `37` |
+| compileSdk | `37` |
+| ABI | `arm64-v8a` |
+| Native library | `lib/arm64-v8a/libomp_client_lib.so`, `114058800` bytes |
+| Debug signer | V2, `CN=Android Debug`, cert SHA-256 `abaa17c972fd220b7c16e14f9c78d2acd3aaa92b0957354d3c0e614d9a0e6302` |
+| Uploaded artifact | `omp-client-android-debug-1363b30f13537a67033baa1b1468055590a11b43`, ID `12931160546`, `36927322` bytes zipped, 14-day retention |
 
-**Not built.** Required toolchain is absent and the host architecture blocks Google's Linux Android build tools:
+The artifact was downloaded and re-checked locally: size and SHA-256 match the CI values. `apksigner verify --print-certs` passes and reports the Android debug certificate. `unzip -l` confirms exactly one ABI (`arm64-v8a`) and the native library. This is a debug-signed build, not a release artifact.
 
-- no JDK, no Android SDK/NDK, no Gradle, no `adb`, no Tauri CLI;
-- only the host Rust target `aarch64-unknown-linux-gnu` is installed;
-- Google `build-tools_r37_linux.zip` contains ELF64 **x86-64** `aapt2` and `zipalign` (`readelf -h` reports `Advanced Micro Devices X86-64`);
-- host is aarch64; no `qemu-x86_64`, `box64`, `adb`, or emulator is available.
+### On-device evidence
 
-Consequently a debug APK build, install, app-to-Termux loopback HTTP/WebSocket test, real WebView origin check, and `adb logcat` inspection were **NOT RUN**. Nothing in this checkpoint claims they passed. Architecture viability for the OMP/bridge side is unaffected; Android build verification needs an x86_64 Linux host or CI runner with the official Android toolchain.
+A user installed the CI APK on the target Android 15 device (`arm64-v8a`, model `23021RAAEG`) and supplied a screenshot of the running app on 2026-10-29. The screen shows:
+
+- `OMP Client` and `Android build smoke test`;
+- the `Bridge not connected` panel with the statement that the APK does not contact OMP, the bridge, or any network service;
+- `Tauri 2`, `Svelte + TypeScript`, `Android debug`, and `v0.1.0`.
+
+This verifies installation, process launch, WebView rendering, and the static smoke UI on a real arm64 device. It does **not** verify `adb logcat`, lifecycle/keyboard behavior, loopback networking, bridge connectivity, or any OMP interaction. No runtime logs were captured.
+
+### What the APK is
+
+The app is a minimal Tauri 2 + SvelteKit shell. It shows a build-smoke screen and states that the bridge is not connected. It does not contain a bridge, does not spawn OMP, and does not claim engine state.
+
+### What was not tested
+
+- `adb logcat`, keyboard/lifecycle behavior, rotation, or process death/recovery.
+- Tauri WebView origin inspection or Chrome DevTools inspection.
+- Loopback HTTP/WebSocket access from the app to a bridge.
+- OMP prompt, streaming, abort, extension UI, or approval paths.
+- Release signing, Play Store packaging, or AAB output.
 
 ## Validation evidence
 
-| Check | Command / environment | Result | Evidence |
-|---|---|---|---|
-| Repository state | `git status --short --branch`; `git rev-parse HEAD` | No commits; all files untracked; HEAD lookup exits 128 | This checkpoint |
-| OMP release checksum | `sha256sum omp-linux-arm64` | PASS, matches `SHA256SUMS.txt` | `/tmp/opencode/omp-bin/SHA256SUMS.txt` |
-| OMP startup without model | `omp --mode rpc-ui < /dev/null` | FAIL (expected config error), exit 1, no stdout | `/tmp/opencode/evidence/no-model-stderr.txt` |
-| OMP ready + v2 + get_state | Python probe, isolated HOME | PASS, exit 0 | `/tmp/opencode/evidence/` |
-| OMP ready + v2 + get_state | `cargo run` in `spike/rpc-harness` | PASS, exit 0, empty stderr | `/tmp/opencode/evidence/rust-harness-summary.json` |
-| Rust unit tests | `cargo test` | PASS, 11 passed, 0 failed | command output |
-| Rust lint | `cargo clippy --all-targets -- -D warnings` | PASS, exit 0 | command output |
-| Rust format | `cargo fmt --all -- --check` | PASS, exit 0 | command output |
-| Tauri debug Android build | `tauri android build --debug --apk` | NOT RUN — toolchain absent | see above |
-| Device loopback/WebSocket | real Tauri app on device | NOT RUN — no APK/device test | see above |
+| Check | Command / environment | Result |
+|---|---|---|
+| Local frontend install | `cd apps/mobile && npm ci --no-audit --no-fund` | PASS |
+| Local frontend format | `npm run format:check` | PASS |
+| Local frontend types/Svelte | `npm run check` | PASS, 0 errors, 0 warnings |
+| Local frontend build | `npm run build` | PASS |
+| Local manifest | `node scripts/validate-manifest.mjs` | PASS, 43 files present, no prompt-pack references |
+| Local workflow lint | `actionlint -no-color -oneline .github/workflows/android-debug-apk.yml` | PASS, exit 0 |
+| Local YAML parse | `python3 -c 'import yaml; yaml.safe_load(...)'` | PASS |
+| Local Rust spike format | `cargo fmt --all -- --check` | PASS |
+| Local Rust spike lint | `cargo clippy --all-targets -- -D warnings` | PASS |
+| Local Rust spike tests | `cargo test` | PASS, 11 passed, 0 failed |
+| Local app Rust format | `cargo fmt --manifest-path apps/mobile/src-tauri/Cargo.toml --all -- --check` | PASS |
+| Local app lockfile | `cargo metadata --manifest-path apps/mobile/src-tauri/Cargo.toml --locked --no-deps` | PASS |
+| Local APK build | `tauri android build --debug --apk` on aarch64 host | NOT RUN — x86_64-only Android build tools |
+| CI APK build | GitHub Actions run `40948549197` | PASS |
+| CI APK verification | `aapt2 dump badging`, `unzip -l`, size/hash assertions | PASS |
+| CI artifact re-check | downloaded artifact, `sha256sum`, `apksigner verify` | PASS |
+| Device install/launch/WebView render | user-installed CI APK on Android 15 arm64; screenshot | PASS (visual evidence only) |
+| Device logs/lifecycle | `adb logcat`, keyboard, rotation, process death | NOT RUN |
+| Bridge/loopback/WebSocket | app plus bridge | NOT RUN |
 
-Reproduction notes:
+## Files changed in this milestone
 
-```sh
-cd spike/rpc-harness
-CC=/usr/bin/gcc PATH=/usr/bin:/root/.cargo/bin:/usr/local/bin:/bin \
-OMP_BIN=/tmp/opencode/omp-bin/omp-linux-arm64 \
-OMP_MODEL=anthropic/claude-sonnet-4-5 \
-OMP_HOME=/tmp/opencode/phase0-home \
-cargo run --quiet -- /tmp/opencode/phase0-workspace
-```
+- `.github/workflows/android-debug-apk.yml` — pinned x86_64 Android debug APK workflow; docs-only PRs/pushes skip, manual `workflow_dispatch` always runs. A docs-only commit in a mixed PR still triggers because GitHub evaluates the whole PR diff.
+- `apps/mobile/` — minimal Tauri 2 + SvelteKit app, pinned frontend and Rust dependencies, icon, capabilities.
+- `scripts/validate-manifest.mjs` — manifest and stale-reference validation.
+- `PACK_MANIFEST.json` — removed `prompts/` entries, added the app, workflow, and validator.
+- `README.md` — current status, build instructions, and evidence boundaries.
+- `Plan/DECISIONS.md` — CI build and smoke-CSP decisions.
+- `Plan/RISKS_AND_OPEN_QUESTIONS.md` — updated Android/WebView status.
+- `Roadmap/ROADMAP.md` — Phase 0 build gate checked, on-device work remains.
+- `Checkpoint/CURRENT.md` — this checkpoint.
 
-`CC=/usr/bin/gcc` is required in this environment because Termux's `cc` appears first on PATH and fails to link Ubuntu's Rust runtime (`-lgcc_s` not found).
-
-## Files changed
-
-- `Checkpoint/CURRENT.md` — replaced planning placeholder with measured Phase 0 evidence.
-- `Plan/DECISIONS.md` — added verified OMP baseline and Android build-host decision; updated open decisions.
-- `Plan/RISKS_AND_OPEN_QUESTIONS.md` — recorded Phase 0 status for the protocol, environment, and Android risks.
-- `Roadmap/ROADMAP.md` — Phase 0 status and remaining gates.
-- `Specs/OMP_RPC_SPEC.md` — recorded the verified OMP 18.13.3 baseline.
-- `spike/rpc-harness/Cargo.toml`, `Cargo.lock`, `src/lib.rs`, `src/main.rs` — Phase 0 Rust harness and tests.
-
-No secrets, provider credentials, prompts, or private workspace contents were written to the repository. `/tmp/opencode/evidence/` is disposable and not committed.
+No secrets, signing keys, provider credentials, prompts, or private workspace contents were committed.
 
 ## Known issues / blockers
 
-- Android APK build blocked on this aarch64 PRoot host: no JDK/SDK/NDK, and Google's Linux build-tools are x86_64-only.
-- No emulator or `adb`; real Tauri WebView origin, cleartext HTTP, WebSocket auth, lifecycle, and logcat checks remain open.
-- No provider credentials; prompt lifecycle, abort, extension UI dialogs, and approvals remain unverified at runtime.
-- Session enumeration interface remains unverified. Do not infer it from undocumented files.
-- The exact no-model launch exits before the ready frame; bridge `doctor` must distinguish missing model configuration from OMP launch/protocol failure.
-- `PACK_MANIFEST.json` and `README.md` reference `prompts/MASTER_IMPLEMENTATION_PROMPT.md` and `prompts/PHASE_0_SPIKE_PROMPT.md`; that directory is absent from this checkout. The Phase 0 instruction was supplied externally.
+- No `adb logcat`, WebView origin inspection, keyboard/rotation test, or process-death recovery test. Installation, launch, and the static smoke render are verified only by the supplied screenshot.
+- No bridge implementation, so loopback HTTP/WebSocket and authentication tests cannot run yet.
+- Prompt acknowledgement versus `prompt_result`, streaming, abort, extension UI, and approvals remain runtime-untested without provider credentials.
+- The CI APK is a 121 MB debug/universal build with an unstripped native library. It is not a release or size-optimized artifact.
+- `tauri icon` regenerates `src-tauri/icons/icon.icns` and `src-tauri/icons/ios/` during CI; the `Check repository diff` step reports these as modified/untracked. This does not fail the build but should be made deterministic or removed before the icons become a maintained asset.
+- Session enumeration remains unverified. Do not infer it from undocumented files.
+- The no-model OMP launch exits before the `ready` frame; bridge `doctor` must distinguish missing model configuration from OMP launch/protocol failure.
 
 ## Security review
 
 - No HTTP/WebSocket listener was created; bridge authentication/origin/path tests remain Phase 1 work.
 - OMP was spawned with an explicit argument list and working directory, no shell interpolation.
-- The probe used an isolated HOME, a disposable workspace, no provider credentials, and no prompts. No secrets, prompts, or workspace file contents were written to the repository.
+- The RPC probe used an isolated HOME, a disposable workspace, no provider credentials, and no prompts. No secrets, prompts, or workspace file contents were written to the repository.
 - stdout remained protocol-only; stderr was captured separately, bounded, and redacted before summary output.
 - The harness enforces advertised frame limits and rejects malformed/oversized/interleaved chunk sequences.
+- The APK is debug-signed only. No release key or signing material is present in the repository or CI.
+- The smoke app sets `app.security.csp` to `null` because SvelteKit inline hydration with a strict CSP was not runtime-verified. This is a smoke-build exception, not a production security decision; define and test a CSP before any real data or remote content is added.
 
 ## Next best action
 
-Provision an x86_64 Linux Android build host or CI runner with the official JDK, Android SDK build-tools/platform, NDK, Rust Android targets, and Tauri 2 CLI, then build a minimal debug APK; this is the only remaining Phase 0 exit.
+Capture `adb logcat` for a clean launch and lifecycle check, then implement the Phase 1 bridge and test loopback HTTP/WebSocket from the installed app. The smoke screen render is no longer the blocker.

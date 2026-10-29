@@ -1,0 +1,256 @@
+name: Android debug APK
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "Plan/**"
+      - "Specs/**"
+      - "Roadmap/**"
+      - "Checkpoint/**"
+      - "LICENSE"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "Plan/**"
+      - "Specs/**"
+      - "Roadmap/**"
+      - "Checkpoint/**"
+      - "LICENSE"
+  # Manual runs are never filtered by paths-ignore.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-debug-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.91.1"
+  NODE_VERSION: "24"
+  JAVA_VERSION: "17"
+  ANDROID_PLATFORM: "android-37.0"
+  ANDROID_BUILD_TOOLS: "36.0.0"
+  ANDROID_NDK_VERSION: "29.0.13846066"
+  CMDLINE_TOOLS_URL: "https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip"
+  CMDLINE_TOOLS_SHA256: "7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee"
+
+jobs:
+  build-debug-apk:
+    name: Build debug APK (arm64-v8a)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Set up JDK
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Install pinned Rust toolchain and Android target
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" \
+            --profile minimal \
+            --component rustfmt \
+            --component clippy \
+            --target aarch64-linux-android
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          cargo --version
+          rustup target list --installed
+
+      - name: Install Android SDK, Build Tools, and NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="$RUNNER_TEMP/android-sdk"
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          curl -fsSL "$CMDLINE_TOOLS_URL" -o "$RUNNER_TEMP/cmdline-tools.zip"
+          echo "$CMDLINE_TOOLS_SHA256  $RUNNER_TEMP/cmdline-tools.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$RUNNER_TEMP/cmdline-tools"
+          mv "$RUNNER_TEMP/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install \
+            "platform-tools" \
+            "platforms;$ANDROID_PLATFORM" \
+            "build-tools;$ANDROID_BUILD_TOOLS" \
+            "ndk;$ANDROID_NDK_VERSION"
+          test -f "$ANDROID_HOME/platforms/$ANDROID_PLATFORM/android.jar"
+          test -x "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/aapt2"
+          test -f "$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION/source.properties"
+          {
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo "ANDROID_SDK_ROOT=$ANDROID_HOME"
+            echo "NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify toolchain versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -version
+          echo "JAVA_HOME=$JAVA_HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "NDK_HOME=$NDK_HOME"
+          grep -F "Pkg.Revision = $ANDROID_NDK_VERSION" "$NDK_HOME/source.properties"
+          "$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/aapt2" version
+          node --version
+          npm --version
+          rustc --version
+          cargo --version
+
+      - name: Install frontend dependencies
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate package manifest
+        run: node scripts/validate-manifest.mjs
+
+      - name: Run frontend checks
+        working-directory: apps/mobile
+        run: |
+          npm run format:check
+          npm run check
+          npm run build
+
+      - name: Run Rust spike checks
+        working-directory: spike/rpc-harness
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+      - name: Check app Rust formatting and lockfile
+        run: |
+          cargo fmt --manifest-path apps/mobile/src-tauri/Cargo.toml --all -- --check
+          cargo metadata --manifest-path apps/mobile/src-tauri/Cargo.toml --locked --no-deps >/dev/null
+
+      - name: Initialize Tauri Android project
+        working-directory: apps/mobile
+        run: |
+          npm run tauri -- android init --ci --skip-targets-install
+          npm run tauri -- icon app-icon.svg
+
+      - name: Verify generated Android toolchain pins
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          GRADLE_PROPS=src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties
+          ROOT_GRADLE=src-tauri/gen/android/build.gradle.kts
+          APP_GRADLE=src-tauri/gen/android/app/build.gradle.kts
+          grep -F "gradle-9.6.1-bin.zip" "$GRADLE_PROPS"
+          grep -F "com.android.tools.build:gradle:9.3.1" "$ROOT_GRADLE"
+          grep -F "compileSdk = 37" "$APP_GRADLE"
+          grep -F "minSdk = 24" "$APP_GRADLE"
+          grep -F "targetSdk = 37" "$APP_GRADLE"
+
+      - name: Build debug APK
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run tauri -- android build --debug --apk --target aarch64 --ci 2>&1 | tee "$RUNNER_TEMP/android-build.log"
+
+      - name: Verify APK and record metadata
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK_DIR=apps/mobile/src-tauri/gen/android/app/build/outputs/apk
+          echo "Searching for APKs under $APK_DIR"
+          find "$APK_DIR" -type f -name '*.apk' -print
+          mapfile -t APKS < <(find "$APK_DIR" -type f -name '*.apk' -print)
+          if [ "${#APKS[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one APK under $APK_DIR, found ${#APKS[@]}"
+            printf '%s\n' "${APKS[@]}"
+            exit 1
+          fi
+          APK="${APKS[0]}"
+          echo "Selected APK: $APK"
+          test -s "$APK"
+          SIZE="$(stat -c '%s' "$APK")"
+          SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+          echo "Size: $SIZE bytes"
+          echo "SHA-256: $SHA256"
+          AAPT2="$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/aapt2"
+          echo "aapt2: $AAPT2"
+          BADGING="$("$AAPT2" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | sed -n '1,20p'
+          PACKAGE_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
+          MIN_SDK="$(printf '%s\n' "$BADGING" | sed -n "s/^minSdkVersion:'\([^']*\)'.*/\1/p")"
+          TARGET_SDK="$(printf '%s\n' "$BADGING" | sed -n "s/^targetSdkVersion:'\([^']*\)'.*/\1/p")"
+          NATIVE_CODE="$(printf '%s\n' "$BADGING" | sed -n 's/^native-code: //p' | tr -d "'")"
+          echo "Package: $PACKAGE_NAME"
+          echo "minSdk: $MIN_SDK"
+          echo "targetSdk: $TARGET_SDK"
+          echo "Native code: $NATIVE_CODE"
+          test -n "$PACKAGE_NAME"
+          test -n "$SIZE"
+          test -n "$SHA256"
+          test -n "$MIN_SDK"
+          test -n "$TARGET_SDK"
+          printf '%s\n' "$NATIVE_CODE" | grep -F "arm64-v8a"
+          unzip -l "$APK" | grep -F "lib/arm64-v8a/"
+          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Android debug APK"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Path | \`$APK\` |"
+            echo "| Size | $SIZE bytes |"
+            echo "| SHA-256 | \`$SHA256\` |"
+            echo "| Package | \`$PACKAGE_NAME\` |"
+            echo "| ABI | \`$NATIVE_CODE\` |"
+            echo "| minSdk / targetSdk | $MIN_SDK / $TARGET_SDK |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: omp-client-android-debug-${{ github.sha }}
+          path: ${{ steps.apk.outputs.apk_path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-debug-diagnostics-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/android-build.log
+            apps/mobile/src-tauri/gen/android/app/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Check repository diff
+        if: always()
+        run: |
+          git diff --check
+          git status --short

@@ -76,7 +76,23 @@ Use one entry per meaningful decision. Update status when evidence changes the d
 - **Decision:** Build the Tauri Android app on an x86_64 Linux host or CI runner with the official JDK, Android SDK/build-tools, NDK, Rust Android targets, and Tauri 2 CLI. Do not treat the current aarch64 PRoot environment as a supported APK build environment.
 - **Context:** The current host is an Android 15 aarch64 device running Ubuntu 26.04 under PRoot. It has no JDK, Android SDK/NDK, Gradle, `adb`, or Tauri CLI. Google's `build-tools_r37_linux.zip` ships ELF64 x86-64 `aapt2` and `zipalign`; no `qemu-x86_64` or `box64` is installed to run them.
 - **Alternatives:** Substitute Termux-native build tools; run x86_64 tools under emulation; build on-device with an unofficial toolchain. None is tested or supported here.
-- **Consequences:** Phase 0's Android build and on-device WebView/loopback checks remain open. This does not invalidate the bridge architecture. APK work moves to an x86_64 build gate; device installation/smoke tests still require a real device or emulator.
+- **Consequences:** Phase 0's Android build moved to an x86_64 CI gate and now succeeds; on-device WebView/loopback checks remain open. This does not invalidate the bridge architecture. Device installation/smoke tests still require a real device or emulator.
+
+## ADR-011 — GitHub Actions is the Android APK build gate
+
+- **Status:** Accepted; verified 2026-10-29
+- **Decision:** Build the debug APK on GitHub Actions `ubuntu-24.04` with pinned toolchains: Node 24, Temurin JDK 17, Rust 1.91.1, Android cmdline-tools 19.0, platform `android-37.0`, Build Tools `36.0.0`, NDK `29.0.13846066`, and the `aarch64-linux-android` Rust target. Build only `arm64-v8a`.
+- **Context:** The local host is aarch64 and Google's Linux Android build tools are x86_64 ELF binaries. The project needs a reproducible build path before on-device testing.
+- **Alternatives:** Keep trying to run x86_64 tools under emulation on the device; use an unofficial Termux Android toolchain; rely on a developer's unrecorded local machine.
+- **Consequences:** The workflow downloads and checksums cmdline-tools, verifies generated Gradle/AGP/SDK pins, runs frontend and Rust checks, builds the APK, validates package/ABI/minSdk/targetSdk/size/SHA-256, and uploads only a verified artifact. Action references are pinned to commit SHAs. Documentation-only pull requests and pushes skip the path filter; `workflow_dispatch` still runs manually. A docs-only commit in a mixed pull request still triggers because GitHub evaluates the whole PR diff. CI success proves compilation and packaging, not runtime behavior. The first verified run is `40948549197`; a user installed that APK on the Android 15 arm64 device and supplied a screenshot of the rendered smoke screen. Loopback and OMP runtime behavior remain unverified; see `Checkpoint/CURRENT.md`.
+
+## ADR-012 — Disable CSP only for the smoke shell
+
+- **Status:** Accepted as a temporary smoke-build exception; revisit before real data
+- **Decision:** Set `app.security.csp` to `null` in `apps/mobile/src-tauri/tauri.conf.json` for the current build-smoke app.
+- **Context:** SvelteKit's inline hydration scripts and a strict CSP were not runtime-verified on Android. The smoke screen has no remote content, no user data, no bridge, and no engine connection.
+- **Alternatives:** Ship an untested strict CSP; add nonces/hashes without a device test; block the APK build until CSP is solved.
+- **Consequences:** The debug smoke APK has no CSP protection. Before adding remote content, user data, bridge calls, or release packaging, define a CSP and verify the WebView renders with it. Do not treat this setting as a production security decision.
 
 ## Open decisions (must be resolved with evidence)
 
@@ -84,4 +100,6 @@ Use one entry per meaningful decision. Update status when evidence changes the d
 - Which Tauri-compatible Android secure-storage plugin is maintained and suitable; do not store long-lived tokens in plain preferences.
 - Whether all required session discovery operations are available through public OMP APIs/commands or require a documented, tested read-only session catalog adapter.
 - Exact Tauri Android origin and permissions needed for local HTTP/WebSocket.
-- Which x86_64 Linux build host or CI runner will produce the first debug APK, and which Android API/NDK versions it will pin.
+- How to make `tauri icon` output deterministic in CI, or whether to stop regenerating icons during the APK build.
+- Which CSP SvelteKit/Tauri needs on Android before the app handles real bridge data.
+- How to run repeatable on-device install, launch, screenshot, and `adb logcat` checks in this environment.

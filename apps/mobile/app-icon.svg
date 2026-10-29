@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="224" fill="#0b1220"/>
+  <rect x="96" y="96" width="832" height="832" rx="176" fill="#0f766e"/>
+  <text x="512" y="600" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="280" font-weight="800" letter-spacing="8" fill="#ecfeff">OMP</text>
+</svg>

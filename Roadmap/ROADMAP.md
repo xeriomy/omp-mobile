@@ -3,16 +3,17 @@
 Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark items Done without test/build/runtime evidence. Update this roadmap whenever a phase changes.
 
 ## Phase 0 — Audit and proof of life
-**Status: Active — OMP round trip proven; Android build gate blocked**
+**Status: Active — OMP round trip and Android CI APK build proven; on-device runtime open**
 
 - [x] Audit repository/toolchain/Git state.
 - [x] Record OMP version/path and relevant help output in `Checkpoint/CURRENT.md`.
 - [x] Read current OMP RPC/CLI docs and verify `rpc-ui` launch.
 - [x] Run a minimal real `ready` → protocol negotiation (if advertised) → `get_state` exchange.
 - [x] Verify child stdout/stderr separation and graceful shutdown.
-- [ ] Build a minimal Tauri 2 Android project or confirm an existing one builds. **Blocked:** no JDK/Android SDK/NDK; current aarch64 PRoot host cannot run x86_64 `aapt2`. Requires x86_64 build host/CI.
-- [ ] Verify app-to-Termux loopback HTTP + WebSocket and actual app origin on device. **Blocked:** no APK, `adb`, emulator, or device test.
-- **Exit:** documented live round trip and a decision for unresolved integration risks. OMP side met; Android side open.
+- [x] Build a minimal Tauri 2 Android project or confirm an existing one builds. **Done in CI:** GitHub Actions run `40948549197` built and verified an arm64-v8a debug APK; see `Checkpoint/CURRENT.md`.
+- [x] Install the CI APK on the Android 15 arm64 device and launch it. **Done:** user-provided screenshot shows the WebView smoke screen; no `adb logcat` captured.
+- [ ] Verify app-to-Termux loopback HTTP + WebSocket and actual app origin on device. **Blocked:** APK launches, but no bridge, `adb logcat`, WebView origin, or loopback test has run.
+- **Exit:** documented live round trip and a decision for unresolved integration risks. OMP side and APK build met; on-device runtime open.
 
 ## Phase 1 — Rust bridge foundation
 **Status: Not started**
@@ -27,9 +28,9 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 - **Exit:** authenticated test client controls a real OMP runtime.
 
 ## Phase 2 — Tauri/Svelte app shell
-**Status: Not started**
+**Status: Active — scaffold and debug APK build done; bridge connection open**
 
-- [ ] Tauri 2 + Svelte + TypeScript scaffold and pinned toolchain.
+- [x] Tauri 2 + Svelte + TypeScript scaffold and pinned toolchain. **Done:** `apps/mobile`, verified in CI run `40948549197`.
 - [ ] Theme tokens, mobile navigation, phone/tablet layouts.
 - [ ] Connection profile and pairing flow.
 - [ ] Health, capability, workspace and runtime state screens.
@@ -74,7 +75,7 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 - [ ] Device smoke test and Android lifecycle/keyboard handling.
 - [ ] Crash/restart/network loss recovery.
 - [ ] Security review and required tests.
-- [ ] CI for Rust, TypeScript/Svelte, contracts, and Android build where practical.
+- [ ] CI for Rust, TypeScript/Svelte, contracts, and Android build where practical. **Partial:** Android APK, Rust spike, and frontend checks run in CI; contracts do not exist yet.
 - [ ] Termux install/start/update instructions.
 - [ ] Release APK build and signing documentation.
 - **Exit:** reproducible debug/release build, documented limitations and acceptance evidence.
@@ -89,4 +90,4 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 - **Exit:** no public unprotected bridge; remote mode is opt-in and security reviewed.
 
 ## Immediate next action
-Provision an x86_64 Linux Android build host or CI runner (official JDK, Android SDK build-tools/platform, NDK, Rust Android targets, Tauri 2 CLI) and build a minimal debug APK. Do not start visual-polish work until the OMP runtime and app-to-bridge connection are proven.
+Capture `adb logcat` for a clean launch and lifecycle check, then implement the Phase 1 bridge and verify loopback HTTP/WebSocket from the installed app. The smoke screen render is no longer the blocker.

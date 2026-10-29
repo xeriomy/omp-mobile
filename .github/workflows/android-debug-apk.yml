@@ -164,6 +164,8 @@ jobs:
         run: |
           set -euo pipefail
           APK_DIR=apps/mobile/src-tauri/gen/android/app/build/outputs/apk
+          echo "Searching for APKs under $APK_DIR"
+          find "$APK_DIR" -type f -name '*.apk' -print
           mapfile -t APKS < <(find "$APK_DIR" -type f -name '*.apk' -print)
           if [ "${#APKS[@]}" -ne 1 ]; then
             echo "::error::Expected exactly one APK under $APK_DIR, found ${#APKS[@]}"
@@ -171,15 +173,24 @@ jobs:
             exit 1
           fi
           APK="${APKS[0]}"
+          echo "Selected APK: $APK"
           test -s "$APK"
           SIZE="$(stat -c '%s' "$APK")"
           SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+          echo "Size: $SIZE bytes"
+          echo "SHA-256: $SHA256"
           AAPT2="$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS/aapt2"
+          echo "aapt2: $AAPT2"
           BADGING="$("$AAPT2" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | sed -n '1,20p'
           PACKAGE_NAME="$(printf '%s\n' "$BADGING" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
           MIN_SDK="$(printf '%s\n' "$BADGING" | sed -n "s/^sdkVersion:'\([^']*\)'.*/\1/p")"
           TARGET_SDK="$(printf '%s\n' "$BADGING" | sed -n "s/^targetSdkVersion:'\([^']*\)'.*/\1/p")"
           NATIVE_CODE="$(printf '%s\n' "$BADGING" | sed -n 's/^native-code: //p' | tr -d "'")"
+          echo "Package: $PACKAGE_NAME"
+          echo "minSdk: $MIN_SDK"
+          echo "targetSdk: $TARGET_SDK"
+          echo "Native code: $NATIVE_CODE"
           test -n "$PACKAGE_NAME"
           test -n "$SIZE"
           test -n "$SHA256"

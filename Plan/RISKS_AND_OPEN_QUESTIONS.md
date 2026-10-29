@@ -1,0 +1,50 @@
+# Risks and Open Questions
+
+## High priority — resolve in Phase 0
+
+### R1. OMP mode/protocol drift
+- **Risk:** installed OMP version differs from current docs or does not expose the expected commands/events.
+- **Mitigation:** record exact version, inspect help/source, capture the `ready` frame, run a live `get_state`, and contract-test the parser.
+- **Phase 0 evidence (2026-10-29):** OMP `18.13.3` emitted the expected ready frame, negotiated v2, and answered `get_state` by ID. Prompt/abort/extension-dialog/approval paths remain untested without credentials.
+
+### R2. Termux process and build environment
+- **Risk:** Rust bridge binary, dependencies, or child-process behavior differs in Termux/Proot.
+- **Mitigation:** build and run a minimal Rust child-process harness inside the actual target environment before selecting deployment scripts.
+- **Phase 0 evidence (2026-10-29):** `spike/rpc-harness` ran against real OMP from this Android/PRoot environment and exited cleanly. Dependencies and deployment under a plain Termux toolchain are still unverified; this host needed Ubuntu `gcc` because Termux `cc` could not link the Ubuntu Rust runtime.
+
+### R3. Android WebView loopback/CORS behavior
+- **Risk:** Tauri Android's WebView cannot reach the bridge using the planned `http://127.0.0.1`/WebSocket configuration without platform-specific configuration.
+- **Mitigation:** implement an early physical-device spike, inspect actual origins and logs, and only then finalize listener, cleartext, CORS, and secure-storage decisions.
+- **Phase 0 status:** blocked. No APK could be built on this aarch64 PRoot host; Google Linux build-tools are x86_64-only. No WebView or `adb` test was performed.
+
+### R4. Secure token storage
+- **Risk:** selected storage plugin is unsupported, stale, or uses unprotected storage on Android.
+- **Mitigation:** verify official plugin docs/source, Android implementation, maintenance, permissions, and behavior on the target Tauri version. Keep tokens memory-only until verified.
+
+### R5. Session enumeration
+- **Risk:** OMP RPC exposes session transitions and entries but not the session catalog in a stable API matching the desired UI.
+- **Mitigation:** research current CLI/API and documented session format. Add a read-only adapter only with integration tests and an ADR; avoid undocumented path guessing.
+
+## Medium priority
+
+### R6. Large streaming events / backpressure
+- **Mitigation:** protocol limits, v2 chunk validation, bounded channel, dropped-client handling, resync state snapshots, metrics without payload logging.
+
+### R7. Process leak on app/bridge lifecycle change
+- **Mitigation:** explicit runtime ownership, cancellation token, graceful close, bounded shutdown, integration test for orphan processes.
+
+### R8. Unsafe file path access
+- **Mitigation:** configured roots, workspace IDs, canonicalization, symlink containment, path fuzz tests.
+
+### R9. UI overload
+- **Mitigation:** prioritize chat and activity summary, collapse large tool output, build phone layout first, use adaptive workspace drawers.
+
+### R10. OpenChamber UX/source confusion
+- **Mitigation:** use product documentation and visible UX as reference; check license before borrowing code/assets; keep own brand and OMP API adapter.
+
+## Questions that require a decision only after evidence
+- Should desktop builds be supported in MVP, or only Android-first with desktop as developer convenience?
+- Should one bridge process support multiple simultaneous client connections in the first stable release?
+- Which Rust HTTP/WebSocket crate best fits current maintenance and Android/Termux constraints?
+- How should OMP session catalog be represented if public RPC does not expose a listing operation?
+- Is remote access required after MVP, and should it rely on VPN/TLS only or a separate relay?

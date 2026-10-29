@@ -1,0 +1,33 @@
+# JavaScript / Svelte
+node_modules/
+dist/
+.svelte-kit/
+.vite/
+
+# Rust / Tauri
+target/
+apps/bridge/target/
+apps/mobile/src-tauri/target/
+apps/mobile/src-tauri/gen/
+
+# Android
+.gradle/
+local.properties
+*.jks
+*.keystore
+
+# Local secrets/config
+.env
+.env.*
+!.env.example
+*.token
+*.secret
+
+# Logs / diagnostic captures
+*.log
+logs/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

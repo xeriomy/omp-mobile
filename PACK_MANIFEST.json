@@ -1,0 +1,27 @@
+{
+  "project": "OMP Client Planning Pack",
+  "created_on": "2026-10-28",
+  "files": [
+    ".gitignore",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "Checkpoint/CHECKPOINT_TEMPLATE.md",
+    "Checkpoint/CURRENT.md",
+    "Plan/DECISIONS.md",
+    "Plan/IMPLEMENTATION_PLAN.md",
+    "Plan/RISKS_AND_OPEN_QUESTIONS.md",
+    "README.md",
+    "Roadmap/ROADMAP.md",
+    "Specs/BRIDGE_API_SPEC.md",
+    "Specs/DATA_MODEL.md",
+    "Specs/OMP_RPC_SPEC.md",
+    "Specs/PRODUCT_SPEC.md",
+    "Specs/SECURITY_SPEC.md",
+    "Specs/UI_SPEC.md",
+    "docs/CODING_AGENT_INSTRUCTIONS.md",
+    "docs/TOOLS_AND_VALIDATION.md",
+    "prompts/MASTER_IMPLEMENTATION_PROMPT.md",
+    "prompts/PHASE_0_SPIKE_PROMPT.md"
+  ],
+  "note": "Planning docs only; no implementation, builds, or runtime tests are included."
+}

@@ -1,214 +1,254 @@
 # Current Checkpoint
 
-> Phase 0 OMP RPC proof, the first successful Android debug APK build in GitHub Actions, and an on-device install/WebView smoke render. Measured on 2026-10-29. Bridge, loopback, and `adb logcat` tests remain unrun.
+> Phase 1 loopback bridge implemented and tested against real OMP `18.13.3`; bridge-connected mobile client implemented and browser-independent client behavior exercised against the live bridge. Android device loopback remains unverified. Measured on 2026-10-30.
 
 ## Snapshot
 
 - **Project:** OMP Client
-- **Milestone:** Phase 0 — proof of life and Android build gate
-- **Status:** OMP RPC round trip **PASS**. Android debug APK CI build **PASS**. On-device install and WebView smoke render **PASS** (visual evidence). Bridge/loopback **NOT RUN**.
-- **Branch:** `ci-apk-build`
-- **Code/evidence commit:** `d8ca5a8` (`ci: skip docs-only runs; record on-device smoke render`)
-- **Pull request:** https://github.com/xeriomy/omp-mobile/pull/1
-- **Working tree:** docs-only checkpoint update in progress; generated `apps/mobile/src-tauri/gen/` is intentionally untracked.
-- **Last updated:** 2026-10-29
+- **Milestone:** Phase 1 — authenticated loopback bridge and connection diagnostics
+- **Status:** Bridge **PASS** on host with real OMP. Rust/frontend automated checks **PASS**. Live HTTP/WS/revoke through the mobile client module **PASS**. Android device pairing, status, and live WebSocket event **PASS** (screenshot evidence; `adb logcat` not captured).
+- **Branch:** `Rust-Bridge-and-Android-Loopback` (placeholder branch from `main`)
+- **Base commit:** `663aed1` (`docs: record merged main CSP build run 41113969884`)
+- **Code commits:** `625a823` (bridge and shared RPC crate), `88c886e` (mobile client).
+- **Pull request:** [#3](https://github.com/xeriomy/omp-mobile/pull/3), open against `main`; CI result pending.
+- **Working tree:** clean after the docs commit that records these SHAs.
+- **Last updated:** 2026-10-30
 
 ## Environment (measured)
 
 | Item | Value |
 |---|---|
 | Local host | Ubuntu 26.04.1 LTS, aarch64, PRoot distro on Android 15 (`arm64-v8a`, model `23021RAAEG`) |
-| Test device | Android 15, `arm64-v8a`, model `23021RAAEG` |
-| Local Rust | `rustc 1.91.1`, `cargo 1.91.1`; `aarch64-unknown-linux-gnu` host target |
-| Local Node / npm | Node `v26.13.0`, npm `11.20.0` |
-| Local Java | OpenJDK `17.0.20.1` |
-| Local Android SDK | cmdline-tools 19.0 and Build Tools `37.0.0` are x86_64 ELF; cannot execute on this aarch64 host |
-| CI runner | GitHub Actions `ubuntu-24.04`, x86_64 |
-| CI Node / Java / Rust | Node `24`, Temurin JDK `17`, Rust `1.91.1` |
-| CI Android | cmdline-tools `19.0`, platform `android-37.0`, Build Tools `36.0.0`, NDK `29.0.13846066` |
-| OMP | `omp/18.13.3`, official `omp-linux-arm64` release asset |
-| OMP checksum | SHA-256 `981f08df6c6344356b31aa696fdd810b8b5fa8c8851ba926d3940e793d47cc3a`, matches release `SHA256SUMS.txt` |
+| Rust | `rustc 1.91.1`, `cargo 1.91.1` |
+| Node / npm | Node `v26.13.0`, npm `11.20.0` |
+| OMP | `omp/18.13.3`, `/tmp/opencode/omp-bin/omp-linux-arm64` |
+| OMP SHA-256 | `981f08df6c6344356b31aa696fdd810b8b5fa8c8851ba926d3940e793d47cc3a` |
+| Android `adb` | unavailable: bundled `platform-tools/adb` is x86_64 ELF on an aarch64 host; no Termux `adb` in PATH |
+| Browser automation | unavailable: OpenChamber browser control needs the desktop app; Playwright is not installed |
 
-## OMP protocol evidence
+## Implemented
 
-### Version and flags
+### Bridge (`apps/bridge`)
 
-```text
-$ omp --version
-omp/18.13.3
-```
+- Axum 0.8 + Tokio loopback HTTP/WebSocket service.
+- Validated config rejects non-loopback bind, wildcard/invalid origins, missing workspace, oversized limits, and zero timeouts.
+- `omp-bridge doctor` validates config and runs `omp --version` without starting OMP.
+- One real `omp --mode rpc-ui` child process, explicit argument array, selected working directory, inherited environment, own process group.
+- Concurrent stdout/stderr drain. stdout is protocol-only; stderr is bounded and redacted.
+- Ready-frame validation, advertised physical-frame limit, v2 negotiation, id-correlated `get_state`.
+- `ready: true` only after real ready + negotiation + successful state.
+- Startup failures are classified: `OMP_NOT_FOUND`, `OMP_START_FAILED`, `OMP_MISSING_MODEL`, `OMP_START_TIMEOUT`, `RPC_PROTOCOL_ERROR`, `RPC_UNSUPPORTED_PROTOCOL`, `RPC_NEGOTIATION_FAILED`, `RPC_STATE_FAILED`, `OMP_EXITED`.
+- Pairing: 10-character code from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, single use, 10-minute TTL, five wrong attempts, hashed at rest.
+- Tokens: 32 random bytes, hashed at rest, 24-hour TTL, revocable, memory-only, printed only once to the pairing client.
+- Exact Host and Origin guard; narrow CORS; 16 KiB request-body limit; 5-second WS auth deadline; no event before auth.
+- Versioned WebSocket envelopes; bounded broadcast; lag emits `bridge.resync`; WS send timeout.
+- Shutdown closes stdin, waits 3 seconds, then SIGKILLs the child process group; tasks joined and pending requests cleared.
 
-`omp --help` confirms `--mode` accepts `text`, `json`, `rpc`, `rpc-ui`; it also documents `--no-ui` as making extensions headless while `rpc-ui` tool UI remains enabled. No `--no-ui` was used.
+### Shared RPC crate (`crates/omp-rpc`)
 
-### Exact candidate command without a model
+Moved the Phase 0 framing/correlation code out of `spike/rpc-harness/src/lib.rs` so the bridge and harness share the same bounded JSONL parser and v2 chunk assembler. The harness remains a workspace member.
 
-Command, cwd `/tmp/opencode/phase0-workspace` with isolated `HOME=/tmp/opencode/phase0-home`:
+### Mobile (`apps/mobile`)
+
+- Replaced the smoke screen with a real pairing/connection/diagnostics screen.
+- Loopback-only URL validation (`127.0.0.1`, `localhost`, `[::1]`), no path/credentials/query.
+- Pairing code entry; token and token ID kept in memory only; expiry displayed; revoke/forget.
+- Real `/healthz`, `/api/v1/pair`, `/api/v1/status`, `/api/v1/tokens/revoke`, and WebSocket first-message auth.
+- Displays engine state, model, protocol, session, message count, streaming/settled flags, spurious-free error states, last 20 live events, and explicit paused/stale state.
+- Manual reconnect and 5-second status polling; no fake model/session data and no prompt action.
+- CSP extended with loopback HTTP/WS sources.
+- Added Node tests for URL normalization and rejection rules.
+
+## Evidence
+
+### Rust checks
+
+Commands run from the repository root:
 
 ```sh
-omp --mode rpc-ui < /dev/null
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
-Result: exit code `1`, zero bytes on stdout, and this stderr:
+Results:
 
-```text
-No default model selected. Use /login, set an API key environment variable, or select a local model with /model or --model.
-```
+- `cargo fmt`: exit 0.
+- `cargo clippy -D warnings`: exit 0.
+- `cargo test --workspace`: **54 passed, 0 failed, 1 ignored**.
+  - omp-bridge unit: 23 passed.
+  - engine lifecycle integration: 11 passed.
+  - HTTP/WebSocket integration: 9 passed.
+  - omp-rpc unit: 11 passed.
+  - harness unit: 0 tests.
+  - doc tests: 0 tests.
+  - `real_omp`: 1 ignored by default.
 
-This is an environment/configuration failure, not an RPC protocol failure. The isolated HOME had no provider credentials or model configuration.
+Engine lifecycle tests cover real-ready ordering, v1 fallback, malformed frame tolerance, missing binary, missing model, startup timeout, unsupported versions, rejected negotiation/state, oversized frames, real stdout event delivery, and child cleanup.
 
-### Live protocol exchange
+HTTP/WS tests cover minimal health, single-use pairing, missing/revoked/expired auth, pairing rate limit, safe state projection, exact Origin/Host rejection, first-message WS auth, bad token/garbage close `4401`, disallowed WS Origin, live event delivery, and token expiry metadata.
 
-The same launch with an explicit catalog model completed the round trip:
+### Real OMP end-to-end
+
+Command:
 
 ```sh
-omp --mode rpc-ui --model anthropic/claude-sonnet-4-5
+OMP_BIN=/tmp/opencode/omp-bin/omp-linux-arm64 \
+OMP_MODEL=anthropic/claude-sonnet-4-5 \
+OMP_WORKSPACE=/tmp/opencode/real-omp-workspace \
+cargo test -p omp-bridge --test real_omp -- --ignored --nocapture
 ```
 
-Exact ready frame (also at `/tmp/opencode/evidence/ready.jsonl`):
+Result: **PASS** in 5.89 s.
+
+```text
+real OMP ready: anthropic/claude-sonnet-4-5
+test real_omp_boots_negotiates_and_serves_authenticated_status ... ok
+```
+
+This test starts the real OMP child through `RunningBridge`, asserts engine `ready`, protocol v2, a real model in `get_state`, authenticates HTTP with a paired token, fetches `/api/v1/status`, checks that `systemPrompt` and `sessionFile` are absent, and shuts down. No prompt was sent.
+
+CLI evidence:
+
+```text
+$ cargo run -q -p omp-bridge -- --omp-bin /tmp/opencode/omp-bin/omp-linux-arm64 \
+    --workspace /tmp/opencode/real-omp-workspace --doctor
+omp-bridge doctor
+  OMP binary: /tmp/opencode/omp-bin/omp-linux-arm64
+  Workspace:  /tmp/opencode/real-omp-workspace
+  Listen:     127.0.0.1:8765
+  Origins:    http://tauri.localhost, https://tauri.localhost, tauri://localhost, http://localhost:1420
+  Limits:     1048576 byte frames, 67108864 byte reassembled
+  Version:    omp/18.13.3
+doctor: configuration looks usable; no OMP process was started.
+```
+
+Non-loopback rejection:
+
+```text
+$ cargo run -q -p omp-bridge -- --listen 0.0.0.0:8765 ...
+omp-bridge: refusing non-loopback listen address 0.0.0.0:8765; remote mode is not implemented
+exit=1
+```
+
+Live bridge startup output (single-use pairing code intentionally not recorded):
+
+```text
+OMP Bridge 0.1.0
+  API:       http://127.0.0.1:8765/api/v1
+  WebSocket: ws://127.0.0.1:8765/api/v1/events
+  OMP:       /tmp/opencode/omp-bin/omp-linux-arm64 --mode rpc-ui --model anthropic/claude-sonnet-4-5 (cwd /tmp/opencode/real-omp-workspace)
+  Engine:    ready, protocol v2, model anthropic/claude-sonnet-4-5
+  Pairing:   <single-use code> (single use, expires in 10 minutes)
+Press Ctrl+C to stop the bridge and its OMP child process.
+```
+
+### Mobile client behavior against the live bridge
+
+The built Svelte page could not be driven in a browser here: OpenChamber's browser panel cannot control pages in this environment and Playwright is not installed. Instead, the committed TypeScript client module was imported with Node 26 and exercised against the live real-OMP bridge:
 
 ```json
-{"type":"ready","protocolVersion":1,"supportedProtocolVersions":[1,2],"maxFrameBytes":1048576,"maxReassembledFrameBytes":67108864}
+{
+  "api": "v1",
+  "engine": "ready",
+  "ready": true,
+  "protocol": 2,
+  "model": { "provider": "anthropic", "id": "claude-sonnet-4-5" },
+  "tokenExpires": true
+}
 ```
-
-Negotiation request:
 
 ```json
-{"id":"phase0-negotiate-1","type":"negotiate_protocol","protocolVersion":2}
+{ "event": "bridge.status", "version": 1, "sequence": 6, "engine": "ready" }
 ```
 
-Response was `success: true`, `command: "negotiate_protocol"`, same `id`. A `get_state` request with id `phase0-state-1` returned `success: true`, `command: "get_state"`, same `id`, with `isStreaming: false`, `isSettled: true`, `messageCount: 0`, and model `anthropic/claude-sonnet-4-5`. Full selected fields are in `/tmp/opencode/evidence/get_state.redacted.json`.
+```text
+revoked token rejected: 401
+```
 
-Shutdown: stdin closed, remaining stdout drained, child exited with code `0`; stderr was empty. The Python probe observed one post-shutdown stdout frame. The Rust harness independently reproduced the same sequence (ready → v2 → get_state → exit 0).
+This proves the client's URL normalization, health check, pairing request, bearer status request, WebSocket first-message auth, event envelope parsing, and revoke path against the real bridge. It does **not** prove DOM rendering, CSP behavior, Android WebView fetch/WS, or touch interaction.
 
-No real prompt was sent. This host had no provider credentials, so prompt acknowledgement versus `prompt_result`, streaming, abort, extension dialogs, and approval behavior remain **not runtime-tested**. Do not claim them from this checkpoint.
+### Frontend checks
 
-## Android debug APK CI evidence
+Commands run from `apps/mobile`:
 
-### Run 41113969884 — `main` merge build (current install candidate)
+```sh
+npm ci --no-audit --no-fund
+npm run format:check
+npm run test
+npm run check
+npm run build
+```
 
-- Trigger: push of the PR #2 merge commit `35e882f` to `main`.
-- Result: **success**. Artifact `omp-client-android-debug-35e882f475dd38cf2a462fbe4f8821937560f724` (ID `13003809342`, `36927611` bytes zipped).
-- Re-checked locally: size `121146901` bytes, SHA-256 `b6c37dd7245eec6d55766b1991212fd38fd9731135442bf0434a371946df10c1`, exactly one ABI, embedded `assets/tauri.conf.json` carries the CSP string. Not byte-identical to the PR build (same size, different hash).
+Results:
 
-### Run 41110700795 — CSP build (PR code)
+- `format:check`: PASS, all files match Prettier.
+- `test`: PASS, 3 tests.
+- `check`: PASS, 0 errors, 0 warnings.
+- `build`: PASS, adapter-static wrote `build/`.
 
-- Workflow: `.github/workflows/android-debug-apk.yml`
-- Run: https://github.com/xeriomy/omp-mobile/actions/runs/41110700795
-- Trigger: `pull_request` for PR #2 (`security: enable Tauri CSP`, branch `csp-config`, head `877703101ae393d09d090a74dd380b2980395c21`)
-- Result: **success**, job `Build debug APK (arm64-v8a)`; all steps passed.
-- Config: `app.security.csp` set to the ADR-012 string (was `null`).
-- Downloaded locally: size and SHA-256 re-checked; embedded `assets/tauri.conf.json` inside the APK carries the CSP string; exactly one ABI (`arm64-v8a`, `lib/libomp_client_lib.so` `114059448` bytes).
+Repository metadata:
 
-### Run 40948549197 — first verified build (PR #1)
+```sh
+node scripts/validate-manifest.mjs
+```
 
-- Workflow: `.github/workflows/android-debug-apk.yml`
-- Run: https://github.com/xeriomy/omp-mobile/actions/runs/40948549197
-- Trigger: `pull_request` for PR #1
-- Head SHA: `287f49119bccf138b25e4e2e5482bab5a4dcbf48`
-- Result: **success**, job `Build debug APK (arm64-v8a)` in 4m29s
-- All steps passed: frontend checks, Rust spike checks, manifest validation, Android init, generated toolchain pins, APK build, APK verification, artifact upload.
-- Final workflow version with the docs-only path filter also passed: run `40950435431`, same package/ABI/size/SDK levels, SHA-256 `98996d96d6dcdb544881c6e863d4187b7ac208c184fcb7b41a4e81b926efe07c`. Build output is not byte-identical across runs.
+Result: `PASS: 60 files present, no prompt-pack references.`
 
-### Artifact
+CI workflow now runs frontend format/test/check/build and root-workspace Rust fmt/clippy/test before the Android build. Run `41130961933` failed because the new root workspace implicitly claimed `apps/mobile/src-tauri`, whose own locked metadata check then refused to run. Commit `414c640` excludes that crate; the next run passed.
+
+### Android APK build (CI)
+
+Run [`41131544289`](https://github.com/xeriomy/omp-mobile/actions/runs/41131544289) on `414c640`: **PASS** in 5m03s. The workflow ran the Rust workspace checks, frontend checks, Android debug build, `aapt2` badging assertions, and APK content checks.
+
+Downloaded artifact:
 
 | Field | Value |
 |---|---|
-| CI path | `apps/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` |
-| Size | `121146141` bytes |
-| SHA-256 | `6c650a9ac8039ba57ef980c104a4184b13d3ac802fc02b9f7a6ca024e63ee342` |
-| Package | `com.ompclient.mobile` |
-| Version | `0.1.0` (`versionCode 1000`) |
-| minSdk / targetSdk | `24` / `37` |
-| compileSdk | `37` |
-| ABI | `arm64-v8a` |
-| Native library | `lib/arm64-v8a/libomp_client_lib.so`, `114058800` bytes |
-| Debug signer | V2, `CN=Android Debug`, cert SHA-256 `abaa17c972fd220b7c16e14f9c78d2acd3aaa92b0957354d3c0e614d9a0e6302` |
-| Uploaded artifact | `omp-client-android-debug-1363b30f13537a67033baa1b1468055590a11b43`, ID `12931160546`, `36927322` bytes zipped, 14-day retention |
+| Artifact | `omp-client-android-debug-fdb21e6a277c48403835492543deb9428c9c7e4c` |
+| APK | `app-universal-debug.apk` |
+| Size | `121155701` bytes |
+| SHA-256 | `3f81e99dc05a0a0221478ed58cc7eb6eb96de6867cb1ea255b358f1404e65e61` |
+| Native lib | `lib/arm64-v8a/libomp_client_lib.so` present |
+| Package / version | `com.ompclient.mobile` / `0.1.0` |
+| Embedded CSP | `connect-src` includes loopback HTTP/WS sources from ADR-013 |
 
-The artifact was downloaded and re-checked locally: size and SHA-256 match the CI values. `apksigner verify --print-certs` passes and reports the Android debug certificate. `unzip -l` confirms exactly one ABI (`arm64-v8a`) and the native library. This is a debug-signed build, not a release artifact.
+This proves the bridge-connected client compiles, packages, and carries the loopback CSP.
 
-### On-device evidence
+### Android device run (2026-10-30)
 
-A user installed the CI APK on the target Android 15 device (`arm64-v8a`, model `23021RAAEG`) and supplied a screenshot of the running app on 2026-10-29. The screen shows:
+The user installed that APK on the target Android 15 arm64 device. The bridge ran in the Ubuntu/PRoot environment on the same phone, listening on `127.0.0.1:8765` with real OMP `18.13.3` and model `anthropic/claude-sonnet-4-5`. The user supplied a screenshot showing:
 
-- `OMP Client` and `Android build smoke test`;
-- the `Bridge not connected` panel with the statement that the APK does not contact OMP, the bridge, or any network service;
-- `Tauri 2`, `Svelte + TypeScript`, `Android debug`, and `v0.1.0`.
+- app header `Connected` and connection card `Live`;
+- bridge `127.0.0.1:8765`, API `v1`, bridge version `0.1.0`, event stream `/api/v1/events`, non-empty token ID;
+- engine `Ready`, model `anthropic/claude-sonnet-4-5`, protocol `v2`, session ID `01a18eec-b981-769d-9461-1f5e7dc01ca6`, 0 messages, not streaming, settled, thinking `high`;
+- one live event: `#6 bridge.status`.
 
-This verifies installation, process launch, WebView rendering, and the static smoke UI on a real arm64 device. It does **not** verify `adb logcat`, lifecycle/keyboard behavior, loopback networking, bridge connectivity, or any OMP interaction. No runtime logs were captured.
-
-### What the APK is
-
-The app is a minimal Tauri 2 + SvelteKit shell. It shows a build-smoke screen and states that the bridge is not connected. It does not contain a bridge, does not spawn OMP, and does not claim engine state.
-
-### What was not tested
-
-- `adb logcat`, keyboard/lifecycle behavior, rotation, or process death/recovery.
-- Tauri WebView origin inspection or Chrome DevTools inspection.
-- Loopback HTTP/WebSocket access from the app to a bridge.
-- OMP prompt, streaming, abort, extension UI, or approval paths.
-- Release signing, Play Store packaging, or AAB output.
-
-## Validation evidence
-
-| Check | Command / environment | Result |
-|---|---|---|
-| Local frontend install | `cd apps/mobile && npm ci --no-audit --no-fund` | PASS |
-| Local frontend format | `npm run format:check` | PASS |
-| Local frontend types/Svelte | `npm run check` | PASS, 0 errors, 0 warnings |
-| Local frontend build | `npm run build` | PASS |
-| Local manifest | `node scripts/validate-manifest.mjs` | PASS, 43 files present, no prompt-pack references |
-| Local workflow lint | `actionlint -no-color -oneline .github/workflows/android-debug-apk.yml` | PASS, exit 0 |
-| Local YAML parse | `python3 -c 'import yaml; yaml.safe_load(...)'` | PASS |
-| Local Rust spike format | `cargo fmt --all -- --check` | PASS |
-| Local Rust spike lint | `cargo clippy --all-targets -- -D warnings` | PASS |
-| Local Rust spike tests | `cargo test` | PASS, 11 passed, 0 failed |
-| Local app Rust format | `cargo fmt --manifest-path apps/mobile/src-tauri/Cargo.toml --all -- --check` | PASS |
-| Local app lockfile | `cargo metadata --manifest-path apps/mobile/src-tauri/Cargo.toml --locked --no-deps` | PASS |
-| Local APK build | `tauri android build --debug --apk` on aarch64 host | NOT RUN — x86_64-only Android build tools |
-| CI APK build | GitHub Actions run `40948549197` | PASS |
-| CI APK verification | `aapt2 dump badging`, `unzip -l`, size/hash assertions | PASS |
-| CI artifact re-check | downloaded artifact, `sha256sum`, `apksigner verify` | PASS (run `40948549197`; for run `41110700795` only size/SHA/ABI/content re-checked — `apksigner` rerun discontinued because the local host no longer has the tool) |
-| Device install/launch/WebView render | user-installed CI APK on Android 15 arm64; screenshot | PASS (visual evidence only; run `40948549197`, pre-CSP build; CSP build not yet installed) |
-| CSP configuration | `apps/mobile/src-tauri/tauri.conf.json` + embedded config in run `41110700795` artifact | CONFIGURED — CI PASS, on-device render NOT RUN |
-| Device logs/lifecycle | `adb logcat`, keyboard, rotation, process death | NOT RUN |
-| Bridge/loopback/WebSocket | app plus bridge | NOT RUN |
-
-## Files changed in this milestone
-
-- `.github/workflows/android-debug-apk.yml` — pinned x86_64 Android debug APK workflow; docs-only PRs/pushes skip, manual `workflow_dispatch` always runs. A docs-only commit in a mixed PR still triggers because GitHub evaluates the whole PR diff.
-- `apps/mobile/` — minimal Tauri 2 + SvelteKit app, pinned frontend and Rust dependencies, icon, capabilities.
-- `scripts/validate-manifest.mjs` — manifest and stale-reference validation.
-- `PACK_MANIFEST.json` — removed `prompts/` entries, added the app, workflow, and validator.
-- `README.md` — current status, build instructions, and evidence boundaries.
-- `Plan/DECISIONS.md` — CI build and webview CSP decisions.
-- `Plan/RISKS_AND_OPEN_QUESTIONS.md` — updated Android/WebView status.
-- `Roadmap/ROADMAP.md` — Phase 0 build gate checked, on-device work remains.
-- `Checkpoint/CURRENT.md` — this checkpoint.
-
-No secrets, signing keys, provider credentials, prompts, or private workspace contents were committed.
-
-## Known issues / blockers
-
-- No `adb logcat`, WebView origin inspection, keyboard/rotation test, or process-death recovery test. Installation, launch, and the static smoke render are verified only by the supplied screenshot.
-- No bridge implementation, so loopback HTTP/WebSocket and authentication tests cannot run yet.
-- Prompt acknowledgement versus `prompt_result`, streaming, abort, extension UI, and approvals remain runtime-untested without provider credentials.
-- The CI APK is a ~121 MB debug/universal build with an unstripped native library. It is not a release or size-optimized artifact.
-- The CSP-enabled run `41110700795` proves only that Tauri's codegen/serve path builds and that the APK carries the CSP config. A device install of this exact APK has not happened yet; the earlier on-device screenshot came from run `40948549197`, which still had `csp: null`.
-- `tauri icon` regenerates `src-tauri/icons/icon.icns` and `src-tauri/icons/ios/` during CI; the `Check repository diff` step reports these as modified/untracked. This does not fail the build but should be made deterministic or removed before the icons become a maintained asset.
-- Session enumeration remains unverified. Do not infer it from undocumented files.
-- The no-model OMP launch exits before the `ready` frame; bridge `doctor` must distinguish missing model configuration from OMP launch/protocol failure.
+This is the first device evidence that Android WebView accepts the loopback HTTP/WebSocket transport, the CSP allows those sources, Android permits the cleartext loopback connection, and the bridge accepts the app's exact origin. Not captured: `adb logcat`, device-initiated revoke, app restart, lifecycle, and keyboard behavior.
 
 ## Security review
 
-- No HTTP/WebSocket listener was created; bridge authentication/origin/path tests remain Phase 1 work.
-- OMP was spawned with an explicit argument list and working directory, no shell interpolation.
-- The RPC probe used an isolated HOME, a disposable workspace, no provider credentials, and no prompts. No secrets, prompts, or workspace file contents were written to the repository.
-- stdout remained protocol-only; stderr was captured separately, bounded, and redacted before summary output.
-- The harness enforces advertised frame limits and rejects malformed/oversized/interleaved chunk sequences.
-- The APK is debug-signed only. No release key or signing material is present in the repository or CI.
-- The smoke app used to set `app.security.csp` to `null`. Since PR #2 the app ships the ADR-012 CSP: `default-src 'self'`, no `unsafe-eval`/`unsafe-inline` for scripts (Tauri codegen hashes inline scripts and `.js` assets), `'unsafe-inline'` only in `style-src` for inline `style` attributes. The CSP build passed CI (run `41110700795`) but has not been rendered on a device yet.
+- Listener is loopback-only; `0.0.0.0` fails before OMP starts.
+- Pairing codes and tokens are never logged or placed in URLs. Only SHA-256 hashes are retained. Tokens are memory-only in the app.
+- Functional HTTP endpoints require bearer auth. WebSocket rejects unauth/garbage/late clients with `4401`/`4408` and sends no event first.
+- Host must be `127.0.0.1`, `localhost`, or `[::1]` with the configured port. Non-empty Origin must exactly match the allowlist; CORS is never wildcard.
+- `get_state` is projected to a safe summary; prompts, session files, provider URLs, and credentials are excluded from status.
+- Child stdout/stderr are drained independently; stderr is bounded, redacted, and only surfaced after startup failure classification.
+- Request and frame sizes are bounded; broadcast is bounded; lag resynchronizes.
+- OMP runs in its own process group and is killed as a group only after graceful shutdown times out.
+- No provider credentials, prompts, or tokens were committed. The real-OMP test used the existing host configuration and did not send a model prompt.
+
+## Known issues and blockers
+
+- **Device evidence is screenshot-only.** Pairing, status, and one WebSocket event are proven on the Android 15 device. `adb logcat`, revoke from the app, restart, lifecycle, and keyboard behavior are not captured. No working `adb` on this host.
+- **No automated DOM/CSP test.** OpenChamber browser control and Playwright were unavailable; the device screenshot is the only runtime UI evidence.
+- **No OpenAPI contract package.** The exact v1 subset is documented in `Specs/BRIDGE_API_SPEC.md`; `packages/contracts` and generated-type drift checks do not exist.
+- **No prompt/control API.** Chat, abort, sessions, model selection, files, Git, and extension UI remain future phases.
+- **No Android secure storage.** Token is memory-only, so app restart requires pairing again.
+- **No automatic WebSocket retry.** The UI offers manual reconnect and shows a stale/paused state.
+- **OMP raw events are not normalized.** `omp.event` carries `rawType` and the raw frame; stable typed UI events are future work.
+- **Termux deployment unverified.** The bridge ran in this Ubuntu/PRoot environment, not a plain Termux toolchain.
 
 ## Next best action
 
-Install the `main` CSP APK (run `41113969884`) on the device and confirm the WebView still renders; capture `adb logcat` if available. Then implement the Phase 1 bridge and test loopback HTTP/WebSocket from the installed app. The smoke screen render with `csp: null` is no longer the configuration that ships.
+Implement the Phase 3 prompt path: `POST /api/v1/prompt` (or equivalent) with request-ID correlation, streaming `omp.event` projection, `prompt_result` completion, abort, and explicit approval passthrough. Keep the OpenAPI/event contract package next so the new actions land with generated types and a drift check. Capture `adb logcat` and app restart behavior when device tooling becomes available.

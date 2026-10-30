@@ -5,5 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
-base64 = "0.22"
+omp-rpc = { path = "../../crates/omp-rpc" }
 serde_json = "1"

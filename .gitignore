@@ -1,6 +1,7 @@
 # JavaScript / Svelte
 node_modules/
 dist/
+apps/mobile/build/
 .svelte-kit/
 .vite/
 

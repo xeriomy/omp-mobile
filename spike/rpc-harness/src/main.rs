@@ -6,7 +6,7 @@
 //!
 //! stdout carries only the redacted summary. Child stderr is diagnostics.
 
-use omp_rpc_harness::{
+use omp_rpc::{
     ChunkAssembler, DEFAULT_MAX_REASSEMBLED_BYTES, ResponseCorrelator, parse_jsonl_line,
 };
 use serde_json::{Value, json};

@@ -9,9 +9,9 @@
 - **Status:** Bridge **PASS** on host with real OMP. Rust/frontend automated checks **PASS**. Live HTTP/WS/revoke through the mobile client module **PASS**. Android device bridge connection **NOT RUN**.
 - **Branch:** `Rust-Bridge-and-Android-Loopback` (placeholder branch from `main`)
 - **Base commit:** `663aed1` (`docs: record merged main CSP build run 41113969884`)
-- **Code commit:** pending when this checkpoint was written; see the commit that introduces `apps/bridge`.
-- **Pull request:** not opened yet.
-- **Working tree:** uncommitted Phase 1 changes (`apps/bridge`, shared RPC crate, mobile client, CI/docs).
+- **Code commits:** `625a823` (bridge and shared RPC crate), `88c886e` (mobile client).
+- **Pull request:** [#3](https://github.com/xeriomy/omp-mobile/pull/3), open against `main`; CI result pending.
+- **Working tree:** clean after the docs commit that records these SHAs.
 - **Last updated:** 2026-10-30
 
 ## Environment (measured)

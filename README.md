@@ -8,7 +8,7 @@ Android-first mobile client for **OMP (oh-my-pi)**, built around OMP's native JS
 - **Bridge:** implemented in `apps/bridge`. It binds loopback only, validates Host/Origin, pairs with a single-use code, issues expiring revocable tokens, owns one OMP child process, drains stdout/stderr, correlates responses by ID, enforces frame limits, serves versioned HTTP status, and streams authenticated WebSocket events.
 - **Mobile app:** the Tauri 2 + Svelte screen pairs with the bridge and displays only real bridge/OMP state, live events, and explicit disconnected/error states. It never sends prompts yet.
 - **Automated evidence:** 23 bridge unit tests, 11 engine lifecycle tests, 9 HTTP/WebSocket integration tests, 11 shared RPC tests, 3 frontend client tests, and an opt-in real-OMP end-to-end test pass locally. The real-OMP test also passed against `omp/18.13.3`.
-- **Android APK:** the existing CI workflow builds a debug arm64-v8a APK. A bridge-connected APK build on the target device is **not** verified yet; this host has no usable `adb` (the platform-tools binary is x86_64 on an aarch64 host).
+- **Android APK:** CI run `41131544289` built the bridge-connected debug APK. The user installed it on the target Android 15 device, paired with a real bridge running in PRoot, and the app showed `Connected`/`Live`, engine `Ready`, model `anthropic/claude-sonnet-4-5`, protocol `v2`, and a live `bridge.status` event. `adb logcat` is still unavailable here (the platform-tools binary is x86_64 on an aarch64 host).
 - **Not implemented:** chat/prompts, abort, sessions, model selection, files, Git, Android secure token storage. Tokens stay in memory and must be re-paired after a bridge restart.
 
 ## Repository layout
@@ -131,7 +131,9 @@ The `Android debug APK` workflow on `main` (run [41113969884](https://github.com
 | ABI | `arm64-v8a` |
 | Signing | Android debug certificate, not a release key |
 
-A user installed an earlier debug build on the target Android 15 arm64 device and supplied a screenshot of the smoke screen. That verifies installation and WebView rendering only. `adb logcat`, lifecycle/keyboard behavior, loopback networking from the app, and a bridge-connected APK remain unverified.
+The user installed the bridge-connected build from run `41131544289` and connected it to `omp-bridge` running in the Ubuntu/PRoot environment on the same phone. A user-provided screenshot shows the real paired session: `Connected`/`Live`, API `v1`, engine `Ready`, model `anthropic/claude-sonnet-4-5`, protocol `v2`, one live `bridge.status` event, and a reported session ID. This verifies install, WebView rendering, loopback HTTP/WebSocket, Android cleartext to loopback, the app origin against the bridge allowlist, and the CSP at runtime.
+
+Still unverified: `adb logcat`, app restart, Android lifecycle/keyboard behavior, device-initiated revoke, and a native Termux build of the bridge.
 
 ## Non-negotiable engineering rules
 

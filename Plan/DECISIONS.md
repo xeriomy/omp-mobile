@@ -98,7 +98,7 @@ Use one entry per meaningful decision. Update status when evidence changes the d
 
 ## ADR-013 — Phase 1 bridge transport, authentication, and process ownership
 
-- **Status:** Accepted and implemented; on-device networking not verified
+- **Status:** Accepted and implemented; loopback pairing/status/WebSocket verified on the Android 15 device on 2026-10-30 (`adb logcat` still not captured)
 - **Decision:** Use Axum 0.8 on Tokio for the loopback HTTP/WebSocket bridge. Use a 10-character single-use pairing code (10-minute TTL, five failures, hashed at rest) exchanged for a 32-byte bearer token with a 24-hour TTL, revocable and stored only as a hash. Authenticate WebSocket clients with a first text message within 5 seconds, never a URL query parameter. Keep client tokens in the mobile app's memory only. Give the OMP child its own process group and kill that group only after graceful stdin-close shutdown times out.
 - **Context:** The bridge controls an agent that can modify files and run tools. Loopback alone is not authentication; any local process can reach it. The client needs live state, but the token must not leak through URLs, browser history, logs, or plain Web Storage. The Android WebView can render the Svelte client but this host cannot install or inspect it.
 - **Alternatives:** Actix Web (workable, but Axum keeps the existing Tokio stack and has a small WS surface); long-lived token in a query string (rejected: leaks into logs/history); token in `localStorage` (rejected until secure storage is verified); token with no expiry (rejected by the security spec); killing only the direct child (rejected: descendants can orphan).

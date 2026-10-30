@@ -6,7 +6,7 @@
 
 - **Project:** OMP Client
 - **Milestone:** Phase 1 — authenticated loopback bridge and connection diagnostics
-- **Status:** Bridge **PASS** on host with real OMP. Rust/frontend automated checks **PASS**. Live HTTP/WS/revoke through the mobile client module **PASS**. Android device bridge connection **NOT RUN**.
+- **Status:** Bridge **PASS** on host with real OMP. Rust/frontend automated checks **PASS**. Live HTTP/WS/revoke through the mobile client module **PASS**. Android device pairing, status, and live WebSocket event **PASS** (screenshot evidence; `adb logcat` not captured).
 - **Branch:** `Rust-Bridge-and-Android-Loopback` (placeholder branch from `main`)
 - **Base commit:** `663aed1` (`docs: record merged main CSP build run 41113969884`)
 - **Code commits:** `625a823` (bridge and shared RPC crate), `88c886e` (mobile client).
@@ -213,7 +213,18 @@ Downloaded artifact:
 | Package / version | `com.ompclient.mobile` / `0.1.0` |
 | Embedded CSP | `connect-src` includes loopback HTTP/WS sources from ADR-013 |
 
-This proves the bridge-connected client compiles, packages, and carries the loopback CSP. It does not prove the app runs or connects on a device.
+This proves the bridge-connected client compiles, packages, and carries the loopback CSP.
+
+### Android device run (2026-10-30)
+
+The user installed that APK on the target Android 15 arm64 device. The bridge ran in the Ubuntu/PRoot environment on the same phone, listening on `127.0.0.1:8765` with real OMP `18.13.3` and model `anthropic/claude-sonnet-4-5`. The user supplied a screenshot showing:
+
+- app header `Connected` and connection card `Live`;
+- bridge `127.0.0.1:8765`, API `v1`, bridge version `0.1.0`, event stream `/api/v1/events`, non-empty token ID;
+- engine `Ready`, model `anthropic/claude-sonnet-4-5`, protocol `v2`, session ID `01a18eec-b981-769d-9461-1f5e7dc01ca6`, 0 messages, not streaming, settled, thinking `high`;
+- one live event: `#6 bridge.status`.
+
+This is the first device evidence that Android WebView accepts the loopback HTTP/WebSocket transport, the CSP allows those sources, Android permits the cleartext loopback connection, and the bridge accepts the app's exact origin. Not captured: `adb logcat`, device-initiated revoke, app restart, lifecycle, and keyboard behavior.
 
 ## Security review
 
@@ -229,16 +240,15 @@ This proves the bridge-connected client compiles, packages, and carries the loop
 
 ## Known issues and blockers
 
-- **Android device not verified.** No working `adb`; APK install and WebView loopback/CORS/cleartext behavior remain open. Do not claim success from the host-only test.
-- **No browser DOM/CSP runtime test.** OpenChamber browser control and Playwright were unavailable. Svelte compile/type/build checks pass, but CSP behavior on Android remains unverified.
+- **Device evidence is screenshot-only.** Pairing, status, and one WebSocket event are proven on the Android 15 device. `adb logcat`, revoke from the app, restart, lifecycle, and keyboard behavior are not captured. No working `adb` on this host.
+- **No automated DOM/CSP test.** OpenChamber browser control and Playwright were unavailable; the device screenshot is the only runtime UI evidence.
 - **No OpenAPI contract package.** The exact v1 subset is documented in `Specs/BRIDGE_API_SPEC.md`; `packages/contracts` and generated-type drift checks do not exist.
 - **No prompt/control API.** Chat, abort, sessions, model selection, files, Git, and extension UI remain future phases.
 - **No Android secure storage.** Token is memory-only, so app restart requires pairing again.
 - **No automatic WebSocket retry.** The UI offers manual reconnect and shows a stale/paused state.
 - **OMP raw events are not normalized.** `omp.event` carries `rawType` and the raw frame; stable typed UI events are future work.
 - **Termux deployment unverified.** The bridge ran in this Ubuntu/PRoot environment, not a plain Termux toolchain.
-- **CI artifact not installed.** The bridge-connected APK exists and was inspected, but no device has run it.
 
 ## Next best action
 
-Install `app-universal-debug.apk` (SHA-256 `3f81e99d…65e61`) on the target Android 15 device while `omp-bridge` runs in Termux, then verify pairing, real status, live events, revoke, WebView origin/CORS, and `adb logcat`. Device access is blocked on this host, so the next engineering task is the OpenAPI/event contract package with generated types and a drift check.
+Implement the Phase 3 prompt path: `POST /api/v1/prompt` (or equivalent) with request-ID correlation, streaming `omp.event` projection, `prompt_result` completion, abort, and explicit approval passthrough. Keep the OpenAPI/event contract package next so the new actions land with generated types and a drift check. Capture `adb logcat` and app restart behavior when device tooling becomes available.

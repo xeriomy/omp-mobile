@@ -3,7 +3,7 @@
 Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark items Done without test/build/runtime evidence. Update this roadmap whenever a phase changes.
 
 ## Phase 0 — Audit and proof of life
-**Status: Active — OMP round trip and Android CI APK build proven; on-device runtime open**
+**Status: Done — OMP round trip, Android CI APK, and on-device bridge round trip proven**
 
 - [x] Audit repository/toolchain/Git state.
 - [x] Record OMP version/path and relevant help output in `Checkpoint/CURRENT.md`.
@@ -12,11 +12,11 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 - [x] Verify child stdout/stderr separation and graceful shutdown.
 - [x] Build a minimal Tauri 2 Android project or confirm an existing one builds. **Done in CI:** GitHub Actions run `40948549197` built and verified an arm64-v8a debug APK; see `Checkpoint/CURRENT.md`.
 - [x] Install the CI APK on the Android 15 arm64 device and launch it. **Done:** user-provided screenshot shows the WebView smoke screen; no `adb logcat` captured.
-- [ ] Verify app-to-Termux loopback HTTP + WebSocket and actual app origin on device. **Blocked:** APK launches, but no bridge, `adb logcat`, WebView origin, or loopback test has run.
-- **Exit:** documented live round trip and a decision for unresolved integration risks. OMP side and APK build met; on-device runtime open.
+- [x] Verify app-to-PRoot loopback HTTP + WebSocket and actual app origin on device. **Done 2026-10-30:** bridge-connected APK paired from Android 15, showed engine `Ready` with real model/protocol, and received a live `bridge.status` WebSocket event. `adb logcat` was not captured.
+- **Exit:** documented live round trip and a decision for unresolved integration risks. **Met** on 2026-10-30.
 
 ## Phase 1 — Rust bridge foundation
-**Status: Active — bridge implemented and tested against real OMP 18.13.3; OpenAPI contracts and device loopback open**
+**Status: Active — bridge implemented, tested against real OMP 18.13.3, and proven from the Android app; OpenAPI contracts open**
 
 - [x] Rust workspace and CLI/config. **Done:** root workspace with `apps/bridge`, `crates/omp-rpc`, and the Phase 0 harness.
 - [x] `omp-bridge doctor` with redacted diagnostics. **Done:** validates binary, workspace, listener, origins, limits; runs `omp --version`.
@@ -25,18 +25,18 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 - [x] OMP child-process lifecycle and JSONL RPC client. **Done:** real ready/v2/`get_state`, request-ID correlation, bounded frames, stderr redaction, process group, clean shutdown.
 - [x] Runtime state snapshot and bounded WebSocket event stream. **Done:** safe `get_state` projection, first-message WS auth, versioned envelopes, bounded broadcast, resync, fake-fixture and real-OMP tests.
 - [ ] OpenAPI/event contracts and generated-type drift checks. **Partial:** exact v1 contract is documented in `Specs/BRIDGE_API_SPEC.md`; no `packages/contracts` or codegen exists.
-- **Exit:** authenticated test client controls a real OMP runtime. **Partial:** real status/WS/auth/shutdown proven; prompt/control actions and on-device client remain open.
+- **Exit:** authenticated test client controls a real OMP runtime. **Partial:** real status/WS/auth/shutdown proven on host and from the Android app; prompt/control actions remain open.
 
 ## Phase 2 — Tauri/Svelte app shell
-**Status: Active — scaffold and debug APK build done; bridge connection open**
+**Status: Done — debug APK installed on device, pairs with the real bridge, and displays real state**
 
 - [x] Tauri 2 + Svelte + TypeScript scaffold and pinned toolchain. **Done:** `apps/mobile`, verified in CI run `40948549197`.
-- [x] Restrictive WebView CSP (ADR-012). **Done at config level:** CI run `41110700795`; on-device render of the CSP build still open.
+- [x] Restrictive WebView CSP (ADR-012). **Done:** CI run `41110700795`; loopback-amended CSP rendered and connected on the Android 15 device on 2026-10-30.
 - [x] Theme tokens, mobile-first layout, safe-area spacing, dark/light support. **Done at code level:** CSS tokens and responsive phone/tablet container; Svelte checks and build pass.
 - [x] Connection profile and pairing flow. **Done at code level:** loopback-only URL validation, pairing, token-in-memory session, revoke/forget, reconnect, polling.
 - [x] Health and runtime state screen. **Done at code level:** real bridge/engine/status data, live WebSocket events, explicit stale/error/empty states. Workspace/capability screens are later.
 - [x] API version/unsupported-feature handling. **Partial:** API v1 is displayed and rejected tokens/network errors are explicit; no capability negotiation because that endpoint does not exist.
-- **Exit:** debug APK on device connects to bridge and displays real state.
+- **Exit:** debug APK on device connects to bridge and displays real state. **Met 2026-10-30** by user screenshot (`Connected`/`Live`, engine `Ready`, real model/protocol, live event).
 
 ## Phase 3 — Chat and RPC UI
 **Status: Not started**
@@ -73,7 +73,7 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 ## Phase 6 — Reliability, packaging and polish
 **Status: Not started**
 
-- [ ] Device smoke test and Android lifecycle/keyboard handling.
+- [ ] Device smoke test and Android lifecycle/keyboard handling. **Partial:** pairing, status, and WebSocket verified on device; `adb logcat`, restart, lifecycle, and keyboard open.
 - [ ] Crash/restart/network loss recovery.
 - [ ] Security review and required tests.
 - [ ] CI for Rust, TypeScript/Svelte, contracts, and Android build where practical. **Partial:** Android APK, Rust spike, and frontend checks run in CI; contracts do not exist yet.
@@ -91,4 +91,4 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 - **Exit:** no public unprotected bridge; remote mode is opt-in and security reviewed.
 
 ## Immediate next action
-Run the updated CI workflow, download the bridge-connected APK, and install it on the target Android 15 device while `omp-bridge` runs in Termux. Verify the exact WebView origin, pairing, status, live events, token revoke, and `adb logcat`; record the evidence or the blocker. OpenAPI contracts remain the next engineering task if device access stays blocked.
+Implement the Phase 3 prompt path over the proven bridge transport: request-ID-correlated prompt submission, streamed OMP events, `prompt_result` completion, abort, and approval passthrough. Add the OpenAPI/event contract package with generated types and a drift check in the same or next change.

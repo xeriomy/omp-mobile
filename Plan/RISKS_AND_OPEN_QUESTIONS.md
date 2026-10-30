@@ -17,7 +17,8 @@
 - **Risk:** Tauri Android's WebView cannot reach the bridge using the planned `http://127.0.0.1`/WebSocket configuration without platform-specific configuration.
 - **Mitigation:** implement an early physical-device spike, inspect actual origins and logs, and only then finalize listener, cleartext, CORS, and secure-storage decisions.
 - **Phase 0 status:** build gate passed. GitHub Actions run `40948549197` produced a verified arm64-v8a debug APK on an x86_64 runner and a user installed it with a screenshot of the rendered smoke screen. The WebView now has the ADR-012 CSP (run `41110700795`), but no device run of that build yet.
-- **Phase 1 update:** the app now makes real loopback HTTP/WS requests and the CSP allows those sources. The exact WebView origin (`http://tauri.localhost`) is allowlisted by the bridge, but no installed APK has exercised it. `adb` is unavailable here because the bundled platform-tools binary is x86_64 on an aarch64 host. Treat Android loopback as **unverified**, not fixed.
+- **Phase 1 update:** the app now makes real loopback HTTP/WS requests and the CSP allows those sources.
+- **Resolved 2026-10-30:** the installed `app-universal-debug.apk` (run `41131544289`) paired from the Android 15 device with `omp-bridge` on `127.0.0.1:8765`, showed `Connected`/`Live`, engine `Ready`, real model/protocol, and a live `bridge.status` event. Loopback HTTP, WebSocket, cleartext, CSP, and the app origin all worked on device. Remaining gap: `adb logcat`, restart, lifecycle, and keyboard behavior are not captured because the bundled platform-tools binary is x86_64 on an aarch64 host.
 
 ### R4. Secure token storage
 - **Risk:** selected storage plugin is unsupported, stale, or uses unprotected storage on Android.

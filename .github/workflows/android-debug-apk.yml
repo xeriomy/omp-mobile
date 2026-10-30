@@ -133,15 +133,17 @@ jobs:
         working-directory: apps/mobile
         run: |
           npm run format:check
+          npm run test
           npm run check
           npm run build
 
-      - name: Run Rust spike checks
-        working-directory: spike/rpc-harness
+      - name: Run Rust workspace checks
+        shell: bash
         run: |
+          set -euo pipefail
           cargo fmt --all -- --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
 
       - name: Check app Rust formatting and lockfile
         run: |

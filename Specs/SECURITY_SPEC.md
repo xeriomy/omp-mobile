@@ -22,8 +22,8 @@
 ## Required controls
 
 1. Loopback bind (`127.0.0.1`) by default; explicit opt-in and warnings for any wider bind.
-2. Pairing secret is short-lived and single-use. Client tokens are revocable, generated with a cryptographically secure RNG, and never included in URL query strings.
-3. Store tokens only in an Android-secure storage option verified to work with the selected Tauri version, or require repairing until such storage is implemented. Never store tokens in plain localStorage.
+2. Pairing secret is short-lived and single-use. Client tokens are revocable, expire (24 hours by default), are generated with a cryptographically secure RNG, and are never included in URL query strings.
+3. Store tokens only in an Android-secure storage option verified to work with the selected Tauri version, or require repairing until such storage is implemented. Never store tokens in plain localStorage. The current client keeps the token in memory only, so app or bridge restart requires pairing again.
 4. Authenticate all functional HTTP endpoints. Authenticate WebSocket before emitting any private event; close on timeout/failure.
 5. Use exact tested Origin allowlisting and Host validation. Never fix CORS by adding `*`.
 6. Request/body/frame/output limits, bounded channels and rate limits.
@@ -49,6 +49,21 @@ Remote access is not enabled in the first milestone. Before adding it:
 - add audit-friendly connection status without logging payloads;
 - test token rotation, expiry and revocation;
 - warn users not to forward an unprotected port directly to the public internet.
+
+## Implemented controls (2026-10-30)
+
+- Listener validation rejects any non-loopback address; `0.0.0.0` exits before spawning OMP.
+- Pairing codes are 10 characters from a 32-symbol unambiguous alphabet, single use, TTL 10 minutes, and locked after five failures. Only SHA-256 hashes are kept.
+- Client tokens are 32 random bytes encoded URL-safe, stored as SHA-256 hashes, TTL 24 hours, revocable, and invalidated by bridge restart. Pair responses include `expiresAt`.
+- Every functional HTTP route requires a bearer token. The WebSocket requires a first-message token within 5 seconds and sends no event before authentication; tokens never appear in URLs.
+- Host must be a loopback name with the configured port. Non-empty Origin must exactly match the configured allowlist. CORS is never `*`.
+- HTTP bodies are limited to 16 KiB. OMP physical frames and reassembled chunks are bounded by the configured and advertised limits. The event broadcast queue is bounded and lag triggers `bridge.resync`.
+- Error bodies contain a random request ID, a stable code, and a generic message; pairing/token values are never logged.
+- OMP runs in its own process group; shutdown closes stdin, drains stdout, then sends SIGKILL to that group only after a 3-second grace period.
+- The mobile client accepts only loopback `http://` origins, sends the token in the WebSocket first message, and never writes it to storage.
+- Tests cover unauthenticated HTTP, revoked and expired tokens, pairing reuse/rate limit, Origin and Host rejection, WebSocket pre-auth silence, bad first messages, event delivery, oversized frames, startup timeout, missing binary/model, and child cleanup.
+
+Still open: on-device WebView loopback/origin behavior, Android secure storage, prompt/approval paths, and any LAN or remote mode.
 
 ## Security acceptance tests
 

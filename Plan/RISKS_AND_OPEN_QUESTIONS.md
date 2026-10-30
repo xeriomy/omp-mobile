@@ -10,16 +10,18 @@
 ### R2. Termux process and build environment
 - **Risk:** Rust bridge binary, dependencies, or child-process behavior differs in Termux/Proot.
 - **Mitigation:** build and run a minimal Rust child-process harness inside the actual target environment before selecting deployment scripts.
-- **Phase 0 evidence (2026-10-29):** `spike/rpc-harness` ran against real OMP from this Android/PRoot environment and exited cleanly. Dependencies and deployment under a plain Termux toolchain are still unverified; this host needed Ubuntu `gcc` because Termux `cc` could not link the Ubuntu Rust runtime.
+- **Phase 0 evidence (2026-10-29):** `spike/rpc-harness` ran against real OMP from this Android/PRoot environment and exited cleanly.
+- **Phase 1 evidence (2026-10-30):** the full `omp-bridge` workspace builds and its opt-in real-OMP test passes in this PRoot environment. Deployment under a plain Termux toolchain is still unverified; this host needed Ubuntu `gcc` because Termux `cc` could not link the Ubuntu Rust runtime.
 
 ### R3. Android WebView loopback/CORS behavior
 - **Risk:** Tauri Android's WebView cannot reach the bridge using the planned `http://127.0.0.1`/WebSocket configuration without platform-specific configuration.
 - **Mitigation:** implement an early physical-device spike, inspect actual origins and logs, and only then finalize listener, cleartext, CORS, and secure-storage decisions.
-- **Phase 0 status:** build gate passed. GitHub Actions run `40948549197` produced a verified arm64-v8a debug APK on an x86_64 runner and a user installed it with a screenshot of the rendered smoke screen. The WebView now has the ADR-012 CSP (run `41110700795`), but no device run of that build yet. Loopback, origin, lifecycle, and `adb logcat` tests remain unrun, so the risk itself is still open.
+- **Phase 0 status:** build gate passed. GitHub Actions run `40948549197` produced a verified arm64-v8a debug APK on an x86_64 runner and a user installed it with a screenshot of the rendered smoke screen. The WebView now has the ADR-012 CSP (run `41110700795`), but no device run of that build yet.
+- **Phase 1 update:** the app now makes real loopback HTTP/WS requests and the CSP allows those sources. The exact WebView origin (`http://tauri.localhost`) is allowlisted by the bridge, but no installed APK has exercised it. `adb` is unavailable here because the bundled platform-tools binary is x86_64 on an aarch64 host. Treat Android loopback as **unverified**, not fixed.
 
 ### R4. Secure token storage
 - **Risk:** selected storage plugin is unsupported, stale, or uses unprotected storage on Android.
-- **Mitigation:** verify official plugin docs/source, Android implementation, maintenance, permissions, and behavior on the target Tauri version. Keep tokens memory-only until verified.
+- **Mitigation:** verify official plugin docs/source, Android implementation, maintenance, permissions, and behavior on the target Tauri version. The current client keeps tokens memory-only and re-pairs after restart; no plugin has been selected.
 
 ### R5. Session enumeration
 - **Risk:** OMP RPC exposes session transitions and entries but not the session catalog in a stable API matching the desired UI.
@@ -29,9 +31,11 @@
 
 ### R6. Large streaming events / backpressure
 - **Mitigation:** protocol limits, v2 chunk validation, bounded channel, dropped-client handling, resync state snapshots, metrics without payload logging.
+- **Phase 1 evidence:** frame limits, 256-event broadcast capacity, recent-event cap, WS send timeout, lag resync, and per-client close handling are implemented and tested with the fake fixture. Real prompt streaming volume is still untested.
 
 ### R7. Process leak on app/bridge lifecycle change
 - **Mitigation:** explicit runtime ownership, cancellation token, graceful close, bounded shutdown, integration test for orphan processes.
+- **Phase 1 evidence:** one explicit engine owner; stdin close, 3-second grace, then SIGKILL to the child's own process group. Lifecycle tests assert the fixture child is gone after success, timeout, and failure paths. Android process-death behavior is still unverified.
 
 ### R8. Unsafe file path access
 - **Mitigation:** configured roots, workspace IDs, canonicalization, symlink containment, path fuzz tests.

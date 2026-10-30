@@ -195,7 +195,25 @@ node scripts/validate-manifest.mjs
 
 Result: `PASS: 60 files present, no prompt-pack references.`
 
-CI workflow now runs frontend format/test/check/build and root-workspace Rust fmt/clippy/test before the Android build. CI for this branch has **not run yet**.
+CI workflow now runs frontend format/test/check/build and root-workspace Rust fmt/clippy/test before the Android build. Run `41130961933` failed because the new root workspace implicitly claimed `apps/mobile/src-tauri`, whose own locked metadata check then refused to run. Commit `414c640` excludes that crate; the next run passed.
+
+### Android APK build (CI)
+
+Run [`41131544289`](https://github.com/xeriomy/omp-mobile/actions/runs/41131544289) on `414c640`: **PASS** in 5m03s. The workflow ran the Rust workspace checks, frontend checks, Android debug build, `aapt2` badging assertions, and APK content checks.
+
+Downloaded artifact:
+
+| Field | Value |
+|---|---|
+| Artifact | `omp-client-android-debug-fdb21e6a277c48403835492543deb9428c9c7e4c` |
+| APK | `app-universal-debug.apk` |
+| Size | `121155701` bytes |
+| SHA-256 | `3f81e99dc05a0a0221478ed58cc7eb6eb96de6867cb1ea255b358f1404e65e61` |
+| Native lib | `lib/arm64-v8a/libomp_client_lib.so` present |
+| Package / version | `com.ompclient.mobile` / `0.1.0` |
+| Embedded CSP | `connect-src` includes loopback HTTP/WS sources from ADR-013 |
+
+This proves the bridge-connected client compiles, packages, and carries the loopback CSP. It does not prove the app runs or connects on a device.
 
 ## Security review
 
@@ -219,8 +237,8 @@ CI workflow now runs frontend format/test/check/build and root-workspace Rust fm
 - **No automatic WebSocket retry.** The UI offers manual reconnect and shows a stale/paused state.
 - **OMP raw events are not normalized.** `omp.event` carries `rawType` and the raw frame; stable typed UI events are future work.
 - **Termux deployment unverified.** The bridge ran in this Ubuntu/PRoot environment, not a plain Termux toolchain.
-- **CI artifact not rebuilt yet.** The previously verified APK is the pre-bridge smoke build.
+- **CI artifact not installed.** The bridge-connected APK exists and was inspected, but no device has run it.
 
 ## Next best action
 
-Push this branch, let the updated GitHub Actions workflow build the bridge-connected debug APK, download and inspect it, then install it on the target Android 15 device while `omp-bridge` runs in Termux. Verify pairing, real status, live events, revoke, and `adb logcat`. If device access remains blocked, implement the OpenAPI/event contract package and generated-type drift check next.
+Install `app-universal-debug.apk` (SHA-256 `3f81e99d…65e61`) on the target Android 15 device while `omp-bridge` runs in Termux, then verify pairing, real status, live events, revoke, WebView origin/CORS, and `adb logcat`. Device access is blocked on this host, so the next engineering task is the OpenAPI/event contract package with generated types and a drift check.

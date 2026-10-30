@@ -31,6 +31,7 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 **Status: Active — scaffold and debug APK build done; bridge connection open**
 
 - [x] Tauri 2 + Svelte + TypeScript scaffold and pinned toolchain. **Done:** `apps/mobile`, verified in CI run `40948549197`.
+- [x] Restrictive WebView CSP (ADR-012). **Done at config level:** CI run `41110700795`; on-device render of the CSP build still open.
 - [ ] Theme tokens, mobile navigation, phone/tablet layouts.
 - [ ] Connection profile and pairing flow.
 - [ ] Health, capability, workspace and runtime state screens.

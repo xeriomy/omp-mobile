@@ -84,7 +84,16 @@ No real prompt was sent. This host had no provider credentials, so prompt acknow
 
 ## Android debug APK CI evidence
 
-### Run
+### Run 41110700795 — CSP build (current configuration)
+
+- Workflow: `.github/workflows/android-debug-apk.yml`
+- Run: https://github.com/xeriomy/omp-mobile/actions/runs/41110700795
+- Trigger: `pull_request` for PR #2 (`security: enable Tauri CSP`, branch `csp-config`, head `877703101ae393d09d090a74dd380b2980395c21`)
+- Result: **success**, job `Build debug APK (arm64-v8a)`; all steps passed.
+- Config: `app.security.csp` set to the ADR-012 string (was `null`).
+- Downloaded locally: size and SHA-256 re-checked; embedded `assets/tauri.conf.json` inside the APK carries the CSP string; exactly one ABI (`arm64-v8a`, `lib/libomp_client_lib.so` `114059448` bytes).
+
+### Run 40948549197 — first verified build (PR #1)
 
 - Workflow: `.github/workflows/android-debug-apk.yml`
 - Run: https://github.com/xeriomy/omp-mobile/actions/runs/40948549197
@@ -153,8 +162,9 @@ The app is a minimal Tauri 2 + SvelteKit shell. It shows a build-smoke screen an
 | Local APK build | `tauri android build --debug --apk` on aarch64 host | NOT RUN — x86_64-only Android build tools |
 | CI APK build | GitHub Actions run `40948549197` | PASS |
 | CI APK verification | `aapt2 dump badging`, `unzip -l`, size/hash assertions | PASS |
-| CI artifact re-check | downloaded artifact, `sha256sum`, `apksigner verify` | PASS |
-| Device install/launch/WebView render | user-installed CI APK on Android 15 arm64; screenshot | PASS (visual evidence only) |
+| CI artifact re-check | downloaded artifact, `sha256sum`, `apksigner verify` | PASS (run `40948549197`; for run `41110700795` only size/SHA/ABI/content re-checked — `apksigner` rerun discontinued because the local host no longer has the tool) |
+| Device install/launch/WebView render | user-installed CI APK on Android 15 arm64; screenshot | PASS (visual evidence only; run `40948549197`, pre-CSP build; CSP build not yet installed) |
+| CSP configuration | `apps/mobile/src-tauri/tauri.conf.json` + embedded config in run `41110700795` artifact | CONFIGURED — CI PASS, on-device render NOT RUN |
 | Device logs/lifecycle | `adb logcat`, keyboard, rotation, process death | NOT RUN |
 | Bridge/loopback/WebSocket | app plus bridge | NOT RUN |
 
@@ -165,7 +175,7 @@ The app is a minimal Tauri 2 + SvelteKit shell. It shows a build-smoke screen an
 - `scripts/validate-manifest.mjs` — manifest and stale-reference validation.
 - `PACK_MANIFEST.json` — removed `prompts/` entries, added the app, workflow, and validator.
 - `README.md` — current status, build instructions, and evidence boundaries.
-- `Plan/DECISIONS.md` — CI build and smoke-CSP decisions.
+- `Plan/DECISIONS.md` — CI build and webview CSP decisions.
 - `Plan/RISKS_AND_OPEN_QUESTIONS.md` — updated Android/WebView status.
 - `Roadmap/ROADMAP.md` — Phase 0 build gate checked, on-device work remains.
 - `Checkpoint/CURRENT.md` — this checkpoint.
@@ -177,7 +187,8 @@ No secrets, signing keys, provider credentials, prompts, or private workspace co
 - No `adb logcat`, WebView origin inspection, keyboard/rotation test, or process-death recovery test. Installation, launch, and the static smoke render are verified only by the supplied screenshot.
 - No bridge implementation, so loopback HTTP/WebSocket and authentication tests cannot run yet.
 - Prompt acknowledgement versus `prompt_result`, streaming, abort, extension UI, and approvals remain runtime-untested without provider credentials.
-- The CI APK is a 121 MB debug/universal build with an unstripped native library. It is not a release or size-optimized artifact.
+- The CI APK is a ~121 MB debug/universal build with an unstripped native library. It is not a release or size-optimized artifact.
+- The CSP-enabled run `41110700795` proves only that Tauri's codegen/serve path builds and that the APK carries the CSP config. A device install of this exact APK has not happened yet; the earlier on-device screenshot came from run `40948549197`, which still had `csp: null`.
 - `tauri icon` regenerates `src-tauri/icons/icon.icns` and `src-tauri/icons/ios/` during CI; the `Check repository diff` step reports these as modified/untracked. This does not fail the build but should be made deterministic or removed before the icons become a maintained asset.
 - Session enumeration remains unverified. Do not infer it from undocumented files.
 - The no-model OMP launch exits before the `ready` frame; bridge `doctor` must distinguish missing model configuration from OMP launch/protocol failure.
@@ -190,8 +201,8 @@ No secrets, signing keys, provider credentials, prompts, or private workspace co
 - stdout remained protocol-only; stderr was captured separately, bounded, and redacted before summary output.
 - The harness enforces advertised frame limits and rejects malformed/oversized/interleaved chunk sequences.
 - The APK is debug-signed only. No release key or signing material is present in the repository or CI.
-- The smoke app sets `app.security.csp` to `null` because SvelteKit inline hydration with a strict CSP was not runtime-verified. This is a smoke-build exception, not a production security decision; define and test a CSP before any real data or remote content is added.
+- The smoke app used to set `app.security.csp` to `null`. Since PR #2 the app ships the ADR-012 CSP: `default-src 'self'`, no `unsafe-eval`/`unsafe-inline` for scripts (Tauri codegen hashes inline scripts and `.js` assets), `'unsafe-inline'` only in `style-src` for inline `style` attributes. The CSP build passed CI (run `41110700795`) but has not been rendered on a device yet.
 
 ## Next best action
 
-Capture `adb logcat` for a clean launch and lifecycle check, then implement the Phase 1 bridge and test loopback HTTP/WebSocket from the installed app. The smoke screen render is no longer the blocker.
+Install the CSP APK (run `41110700795`) on the device and confirm the WebView still renders; capture `adb logcat` if available. Then implement the Phase 1 bridge and test loopback HTTP/WebSocket from the installed app. The smoke screen render with `csp: null` is no longer the configuration that ships.

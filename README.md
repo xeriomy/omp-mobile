@@ -63,20 +63,21 @@ The CI workflow is the supported APK build path: it installs the pinned toolchai
 
 ## Verified CI artifact
 
-The `Android debug APK` workflow run [40948549197](https://github.com/xeriomy/omp-mobile/actions/runs/40948549197) completed successfully on 2026-10-29 (PR [#1](https://github.com/xeriomy/omp-mobile/pull/1)).
+The `Android debug APK` workflow run [41110700795](https://github.com/xeriomy/omp-mobile/actions/runs/41110700795) completed successfully on 2026-10-30 (PR [#2](https://github.com/xeriomy/omp-mobile/pull/2), head `8777031`). PR [#1](https://github.com/xeriomy/omp-mobile/pull/1) carried run `40948549197`.
 
 | Field | Value |
 |---|---|
-| Artifact | `omp-client-android-debug-1363b30f13537a67033baa1b1468055590a11b43` |
+| Artifact | `omp-client-android-debug-78069478a7956a3f94c0d6c3dfda89e168f85cc6` (the workflow names artifacts from the pull-request merge SHA, not the branch head) |
 | APK path in CI | `apps/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` |
-| Size | `121146141` bytes |
-| SHA-256 | `6c650a9ac8039ba57ef980c104a4184b13d3ac802fc02b9f7a6ca024e63ee342` |
-| Package / version | `com.ompclient.mobile` / `0.1.0` (`versionCode 1000`) |
-| minSdk / targetSdk / compileSdk | `24` / `37` / `37` |
-| ABI | `arm64-v8a` |
-| Signing | Android debug certificate (V2), not a release key |
+| Size | `121146901` bytes |
+| SHA-256 | `8a076a03bf614662e52045ebaf5d403c11b21a1a601d2e01bff81a0322786d63` |
+| Package / version | `com.ompclient.mobile` / `0.1.0` |
+| minSdk / targetSdk / compileSdk | from config (`24` / `37` / `37`, as in run `40948549197`) |
+| ABI | `arm64-v8a` (exactly `lib/arm64-v8a/libomp_client_lib.so`, `114059448` bytes) |
+| CSP | configured; embedded `assets/tauri.conf.json` inside the APK contains the full CSP string of ADR-012 |
+| Signing | Android debug certificate, not a release key |
 
-The downloaded artifact was re-checked locally: size and SHA-256 match, `apksigner verify --print-certs` passes, and the APK contains exactly one ABI with `lib/arm64-v8a/libomp_client_lib.so`. A user installed the CI APK on an Android 15 arm64 device and supplied a screenshot of the running smoke screen, which verifies installation, launch, and WebView rendering. `adb logcat`, lifecycle, loopback networking, bridge connectivity, and OMP interaction are **not** verified.
+The downloaded artifact was re-checked locally: size and SHA-256 match, the APK ships exactly one ABI, and the embedded `assets/tauri.conf.json` contains the CSP string instead of a null value. `apksigner verify` is not rerun for this run because the current local host no longer has the signing tools; signing hermeticity is still enforced by the CI verification step. On-device rendering of this CSP build is **not** yet verified; `adb logcat`, lifecycle, loopback networking, bridge connectivity, and OMP interaction are **not** verified.
 
 ## Validate repository metadata
 

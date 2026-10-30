@@ -86,13 +86,13 @@ Use one entry per meaningful decision. Update status when evidence changes the d
 - **Alternatives:** Keep trying to run x86_64 tools under emulation on the device; use an unofficial Termux Android toolchain; rely on a developer's unrecorded local machine.
 - **Consequences:** The workflow downloads and checksums cmdline-tools, verifies generated Gradle/AGP/SDK pins, runs frontend and Rust checks, builds the APK, validates package/ABI/minSdk/targetSdk/size/SHA-256, and uploads only a verified artifact. Action references are pinned to commit SHAs. Documentation-only pull requests and pushes skip the path filter; `workflow_dispatch` still runs manually. A docs-only commit in a mixed pull request still triggers because GitHub evaluates the whole PR diff. CI success proves compilation and packaging, not runtime behavior. The first verified run is `40948549197`; a user installed that APK on the Android 15 arm64 device and supplied a screenshot of the rendered smoke screen. Loopback and OMP runtime behavior remain unverified; see `Checkpoint/CURRENT.md`.
 
-## ADR-012 — Disable CSP only for the smoke shell
+## ADR-012 — Strict Tauri CSP with Tauri-managed script hashes
 
-- **Status:** Accepted as a temporary smoke-build exception; revisit before real data
-- **Decision:** Set `app.security.csp` to `null` in `apps/mobile/src-tauri/tauri.conf.json` for the current build-smoke app.
-- **Context:** SvelteKit's inline hydration scripts and a strict CSP were not runtime-verified on Android. The smoke screen has no remote content, no user data, no bridge, and no engine connection.
-- **Alternatives:** Ship an untested strict CSP; add nonces/hashes without a device test; block the APK build until CSP is solved.
-- **Consequences:** The debug smoke APK has no CSP protection. Before adding remote content, user data, bridge calls, or release packaging, define a CSP and verify the WebView renders with it. Do not treat this setting as a production security decision.
+- **Status:** Accepted; CSP-enabled APK built and verified in CI on PR #2 (run `41110700795`). On-device render of this build is not yet verified.
+- **Decision:** Set `app.security.csp` on `apps/mobile/src-tauri/tauri.conf.json` to `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost blob: data:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'` and let Tauri modify it at build/serve time (default `dangerous_disable_asset_csp_modification`).
+- **Context:** The SvelteKit static output contains an inline hydration bootstrap script (its content changes with every build because asset filenames are hashed) and inline `style="display: contents"` attributes. Tauri's codegen parses every HTML asset, hashes all inline `<script>` contents and `.js`/`.mjs` assets with SHA-256, injects nonce tokens for external `script[src^=http]` and `<style>` elements, and appends the hashes/nonces to `script-src`/`style-src` at serve time. Verified against `tauri-codegen` `context.rs`/`embedded_assets.rs`, `tauri-utils` `html2.rs`, and the CSP config docs of Tauri 2.
+- **Alternatives:** Keep `csp: null` (rejected: ships an unprotected WebView); maintain manual inline-script hashes by hand (rejected: the hydration script changes on every build); add `script-src 'unsafe-inline'` (rejected: defeats the purpose).
+- **Consequences:** This decision supersedes the earlier smoke-shell CSP exception. `style-src 'unsafe-inline'` stays because CSP hashes/nonces cannot cover `style="..."` attributes, and the built HTML has no `<style>` elements whose nonce could take over. If a `<style>` element is ever introduced, Tauri adds a style nonce and CSP then ignores `'unsafe-inline'` for style attributes; revisit inline styling at that point. `object-src 'none'` and `base-uri 'self'` harden further. `frame-ancestors` is deliberately omitted because browsers ignore it in the meta tag Tauri injects. `connect-src` only whitelists `ipc:`/`http://ipc.localhost` for Tauri IPC; bridge/loopback sources get added with their Phase 1 ADR once the bridge actually exists. CI (run `41110700795`) proves the codegen CSP path compiles and hashes assets; runtime CSP behavior still needs a device install of the new APK, with `adb logcat` if available.
 
 ## Open decisions (must be resolved with evidence)
 
@@ -101,5 +101,5 @@ Use one entry per meaningful decision. Update status when evidence changes the d
 - Whether all required session discovery operations are available through public OMP APIs/commands or require a documented, tested read-only session catalog adapter.
 - Exact Tauri Android origin and permissions needed for local HTTP/WebSocket.
 - How to make `tauri icon` output deterministic in CI, or whether to stop regenerating icons during the APK build.
-- Which CSP SvelteKit/Tauri needs on Android before the app handles real bridge data.
+- Which CSP SvelteKit/Tauri needs on Android before the app handles real bridge data. **Resolved in ADR-012 (PR #2, run `41110700795`); on-device render still unverified.**
 - How to run repeatable on-device install, launch, screenshot, and `adb logcat` checks in this environment.

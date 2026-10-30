@@ -1,0 +1,10 @@
+[package]
+name = "omp-rpc"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Bounded OMP JSONL framing and response correlation"
+
+[dependencies]
+base64 = "0.22"
+serde_json = "1"

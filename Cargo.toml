@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["apps/bridge", "crates/omp-rpc", "spike/rpc-harness"]
+# The Tauri app has its own lockfile and is built through the Tauri CLI.
+exclude = ["apps/mobile/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

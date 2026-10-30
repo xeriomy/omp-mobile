@@ -84,7 +84,13 @@ No real prompt was sent. This host had no provider credentials, so prompt acknow
 
 ## Android debug APK CI evidence
 
-### Run 41110700795 — CSP build (current configuration)
+### Run 41113969884 — `main` merge build (current install candidate)
+
+- Trigger: push of the PR #2 merge commit `35e882f` to `main`.
+- Result: **success**. Artifact `omp-client-android-debug-35e882f475dd38cf2a462fbe4f8821937560f724` (ID `13003809342`, `36927611` bytes zipped).
+- Re-checked locally: size `121146901` bytes, SHA-256 `b6c37dd7245eec6d55766b1991212fd38fd9731135442bf0434a371946df10c1`, exactly one ABI, embedded `assets/tauri.conf.json` carries the CSP string. Not byte-identical to the PR build (same size, different hash).
+
+### Run 41110700795 — CSP build (PR code)
 
 - Workflow: `.github/workflows/android-debug-apk.yml`
 - Run: https://github.com/xeriomy/omp-mobile/actions/runs/41110700795
@@ -205,4 +211,4 @@ No secrets, signing keys, provider credentials, prompts, or private workspace co
 
 ## Next best action
 
-Install the CSP APK (run `41110700795`) on the device and confirm the WebView still renders; capture `adb logcat` if available. Then implement the Phase 1 bridge and test loopback HTTP/WebSocket from the installed app. The smoke screen render with `csp: null` is no longer the configuration that ships.
+Install the `main` CSP APK (run `41113969884`) on the device and confirm the WebView still renders; capture `adb logcat` if available. Then implement the Phase 1 bridge and test loopback HTTP/WebSocket from the installed app. The smoke screen render with `csp: null` is no longer the configuration that ships.

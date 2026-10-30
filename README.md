@@ -63,21 +63,21 @@ The CI workflow is the supported APK build path: it installs the pinned toolchai
 
 ## Verified CI artifact
 
-The `Android debug APK` workflow run [41110700795](https://github.com/xeriomy/omp-mobile/actions/runs/41110700795) completed successfully on 2026-10-30 (PR [#2](https://github.com/xeriomy/omp-mobile/pull/2), head `8777031`). PR [#1](https://github.com/xeriomy/omp-mobile/pull/1) carried run `40948549197`.
+The `Android debug APK` workflow on `main` (run [41113969884](https://github.com/xeriomy/omp-mobile/actions/runs/41113969884), merge commit `35e882f`) completed successfully on 2026-10-30. The PR that introduced the CSP was [#2](https://github.com/xeriomy/omp-mobile/pull/2) with runs `41110700795` (code, head `8777031`) and `41113161614` (docs commit `8f3c291`); PR [#1](https://github.com/xeriomy/omp-mobile/pull/1) carried run `40948549197`. Install this `main` artifact for on-device testing; PR artifacts are named from the PR's merge SHA, not the branch head.
 
 | Field | Value |
 |---|---|
-| Artifact | `omp-client-android-debug-78069478a7956a3f94c0d6c3dfda89e168f85cc6` (the workflow names artifacts from the pull-request merge SHA, not the branch head) |
+| Artifact | `omp-client-android-debug-35e882f475dd38cf2a462fbe4f8821937560f724` (ID `13003809342`) |
 | APK path in CI | `apps/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` |
 | Size | `121146901` bytes |
-| SHA-256 | `8a076a03bf614662e52045ebaf5d403c11b21a1a601d2e01bff81a0322786d63` |
+| SHA-256 | `b6c37dd7245eec6d55766b1991212fd38fd9731135442bf0434a371946df10c1` |
 | Package / version | `com.ompclient.mobile` / `0.1.0` |
-| minSdk / targetSdk / compileSdk | from config (`24` / `37` / `37`, as in run `40948549197`) |
+| minSdk / targetSdk / compileSdk | `24` / `37` / `37` (from config; CI asserts them) |
 | ABI | `arm64-v8a` (exactly `lib/arm64-v8a/libomp_client_lib.so`, `114059448` bytes) |
-| CSP | configured; embedded `assets/tauri.conf.json` inside the APK contains the full CSP string of ADR-012 |
+| CSP | configured per ADR-012; embedded `assets/tauri.conf.json` inside the APK contains the full CSP string |
 | Signing | Android debug certificate, not a release key |
 
-The downloaded artifact was re-checked locally: size and SHA-256 match, the APK ships exactly one ABI, and the embedded `assets/tauri.conf.json` contains the CSP string instead of a null value. `apksigner verify` is not rerun for this run because the current local host no longer has the signing tools; signing hermeticity is still enforced by the CI verification step. On-device rendering of this CSP build is **not** yet verified; `adb logcat`, lifecycle, loopback networking, bridge connectivity, and OMP interaction are **not** verified.
+The artifact was re-checked locally: size and SHA-256 match, the APK ships exactly one ABI, and the embedded `assets/tauri.conf.json` carries the CSP string instead of a null value. Build outputs are not byte-identical between runs (PR build `8a076a03…`, `main` build `b6c37dd7…` of identical size). `apksigner verify` is not rerun locally because the current host no longer has the signing tools; signing hermeticity remains enforced by the CI verification step. On-device rendering of this CSP build is **not** yet verified; `adb logcat`, lifecycle, loopback networking, bridge connectivity, and OMP interaction are **not** verified.
 
 ## Validate repository metadata
 

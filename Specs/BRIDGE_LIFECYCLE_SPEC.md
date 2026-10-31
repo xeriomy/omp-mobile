@@ -89,12 +89,23 @@ Candidate priority:
 4. every `omp` on `PATH`;
 5. documented user-writable locations (`~/.local/bin`, `~/.omp/bin`,
    `~/bin`, `~/.local/share/omp/bin`, `$PREFIX/bin`, `/usr/local/bin`,
-   `/usr/bin`);
-6. manual path through `--omp-bin`.
+   `/usr/bin`).
 
-Discovery never walks a filesystem tree. Duplicate candidates are removed by
-canonical path. The first candidate that passes all checks is selected; the
-selection is not alphabetical.
+Discovery never walks a filesystem tree and never invokes a shell. Duplicate
+candidates are removed by canonical path.
+
+Selection is deterministic:
+
+- an explicit `--omp-bin` or `OMP_BRIDGE_OMP_BIN` must be usable; it never falls
+  back to `PATH` or to a saved installation;
+- a valid saved `ompBin` is kept and is never silently replaced;
+- if the saved executable disappears, `setup` fails with `OMP_SAVED_UNAVAILABLE`
+  and keeps the saved config until the user runs `setup --omp-bin`;
+- with neither an override nor saved config, the first valid `PATH` or
+  documented-location candidate wins. The selection is not alphabetical.
+
+`setup` and `doctor` print the selected path, version, and source so the choice
+is visible.
 
 A candidate is usable only when:
 
@@ -163,19 +174,30 @@ The installer (`scripts/install-bridge.sh`):
 - verifies the SHA-256 before replacing anything;
 - installs to `~/.local/bin` by default or `OMP_BRIDGE_INSTALL_DIR`;
 - never uses `sudo`;
-- refuses to run as root unless `OMP_BRIDGE_ALLOW_ROOT=1` is set for containers
-  or tests;
+- distinguishes PRoot from ordinary root. PRoot markers
+  (`container=proot-distro`, `PROOT_L2S_DIR`, `PROOT_TMP_DIR`, `PROOT_LOADER`)
+  allow a root install only under `$HOME`, with a printed warning and no `..`
+  in the path. Ordinary root is still refused unless `OMP_BRIDGE_ALLOW_ROOT=1`,
+  which prints its own warning;
 - refuses to replace a bridge that reports a running phase;
 - prints the installed version and the next `setup`/`start` commands.
 
-`update` does not download or replace binaries. The installer is the only
-upgrade path. `uninstall` refuses while the bridge is running, requires `--yes`
-unless `--dry-run`, keeps configuration by default, and can keep the binary with
-`--keep-binary`.
+PRoot detection is not general root authorization. It exists because
+`proot-distro` reports `id -u` as `0` while the install is confined to the
+container user's home.
 
-The release workflow builds both targets with `--locked`, strips the binaries,
-publishes SHA-256 files, and attaches them to a `v*` GitHub Release. A tag must
-match the workspace version.
+`update` is informational only. It prints the official installer path and the
+`stop` command; it never downloads, replaces, or restarts a running binary. The
+installer is the only upgrade path. `uninstall` refuses while the bridge is
+running, requires `--yes` unless `--dry-run`, keeps configuration by default,
+and can keep the binary with `--keep-binary`.
+
+The release workflow validates the requested tag first, checks out that exact
+tag with full history, requires a detached HEAD matching the tag and tag commit,
+verifies the workspace version, builds both targets with `--locked`, strips the
+binaries, records the source commit SHA in `dist/BUILD_INFO.txt`, release notes,
+and the run summary, publishes SHA-256 files, and attaches them to a `v*`
+GitHub Release. A tag must match the workspace version.
 
 ## 7. Mobile detection and connection
 
@@ -201,13 +223,20 @@ Automated:
   discovery order/version policy, PID identity, handshake schema, and logs.
 - `cargo test -p omp-bridge --test cli_lifecycle` covers setup, background
   start, status, logs, second-start rejection, stop, uninstall dry-run and
-  confirmation, config JSON/path, doctor RPC, and non-loopback rejection.
+  confirmation, config JSON/path, doctor RPC, non-loopback rejection, explicit
+  `--omp-bin` without fallback, saved-OMP disappearance without switching,
+  explicit replacement of a saved installation, first-valid `PATH` selection,
+  and informational `update` output.
 - `cargo test -p omp-bridge --test http_api` covers the unauthenticated
   capabilities identity document and the Phase 1 auth/origin/event controls.
 - Mobile Node tests cover capability validation, loopback-only discovery, and
   URL rejection.
 - `scripts/test-install-bridge.sh` covers target detection, checksum failure,
-  root refusal, and refusal to replace a running bridge.
+  ordinary-root refusal, PRoot root install with warning, PRoot `$HOME`
+  confinement, `PROOT_L2S_DIR` detection, explicit override warning, and refusal
+  to replace a running bridge.
+- `scripts/test-release-workflow.sh` asserts the exact-tag checkout ordering and
+  build metadata in `.github/workflows/bridge-release.yml`.
 
 Manual, on the host:
 

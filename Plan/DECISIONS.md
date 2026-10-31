@@ -114,11 +114,27 @@ Use one entry per meaningful decision. Update status when evidence changes the d
 
 ## ADR-015 — GitHub Releases installer and two glibc targets
 
-- **Status:** Accepted; scripts tested locally, release workflow not yet executed
-- **Decision:** Publish `omp-bridge-aarch64-unknown-linux-gnu` and `omp-bridge-x86_64-unknown-linux-gnu` with SHA-256 files from a `v*` GitHub Release. Install with `scripts/install-bridge.sh`, which verifies the checksum, never uses `sudo`, refuses root unless `OMP_BRIDGE_ALLOW_ROOT=1`, rejects native Termux/musl/unknown architectures, and refuses to replace a running bridge. Keep `omp-bridge update` instructions-only; the installer is the upgrade path. `uninstall` keeps config unless `--purge` and requires `--yes` unless `--dry-run`.
-- **Context:** The first release must be installable without a Rust toolchain, and the host is glibc Linux under PRoot. Native Termux uses bionic and cannot run these binaries. Self-update would add signature/rollback complexity before the release process is proven.
-- **Alternatives:** Self-update (rejected for the first release); `cargo install` (rejected: requires a toolchain); Termux package (rejected until built and tested); curl-to-shell without checksum (rejected).
+- **Status:** Accepted and executed (test release `v0.1.0`); official `v0.0.1` awaits PR #3 merge
+- **Decision:** Publish `omp-bridge-aarch64-unknown-linux-gnu` and `omp-bridge-x86_64-unknown-linux-gnu` with SHA-256 files from a `v*` GitHub Release. Install with `scripts/install-bridge.sh`, which verifies the checksum, never uses `sudo`, distinguishes PRoot from ordinary root, rejects native Termux/musl/unknown architectures, and refuses to replace a running bridge. Keep `omp-bridge update` instructions-only; the installer is the upgrade path. `uninstall` keeps config unless `--purge` and requires `--yes` unless `--dry-run`.
+- **Context:** The first release must be installable without a Rust toolchain, and the host is glibc Linux under PRoot. Native Termux uses bionic and cannot run these binaries. Self-update would add signature/rollback complexity before the release process is proven. The Android 15 PRoot environment reports `id -u` as `0`, so a plain root refusal blocks the intended device path.
+- **Alternatives:** Self-update (rejected for the first release); `cargo install` (rejected: requires a toolchain); Termux package (rejected until built and tested); curl-to-shell without checksum (rejected); accepting all root installs (rejected: weakens the guard for ordinary root).
 - **Consequences:** The release workflow builds with `--locked`, strips binaries, publishes checksums, and checks that the tag matches the workspace version. Users must add `~/.local/bin` to `PATH` when needed. Android auto-detection validates `GET /api/v1/capabilities` before pairing and persists only the non-secret URL.
+
+## ADR-016 — PRoot-only root path and exact-tag release builds
+
+- **Status:** Accepted and implemented; installer fixtures and release-workflow assertions pass
+- **Decision:** Allow a root install only when PRoot markers are present (`container=proot-distro`, `PROOT_L2S_DIR`, `PROOT_TMP_DIR`, `PROOT_LOADER`), the destination resolves under `$HOME`, and the path contains no `..`. Print a warning that this is the PRoot container user, not Android device root. Keep ordinary-root refusal; `OMP_BRIDGE_ALLOW_ROOT=1` remains for non-PRoot containers and now warns. Release workflow resolves and validates the tag first, checks out that exact tag with full history, requires detached HEAD matching the tag and tag commit, verifies the workspace version, and records the source commit SHA in `dist/BUILD_INFO.txt`, release notes, and the run summary.
+- **Context:** `proot-distro` reports root inside the container, so the previous refusal made the documented Android install path impossible. A manual `workflow_dispatch` could previously build the default branch while publishing a tag, which would attach binaries from the wrong commit. The user requires a clear warning and no general root authorization.
+- **Alternatives:** Accept any root (rejected); detect Android by `/system` or model files (rejected: brittle and spoofable); rely on `OMP_BRIDGE_ALLOW_ROOT=1` alone (rejected: no PRoot-specific warning or `$HOME` confinement); build from the workflow ref and trust the caller (rejected: not verifiable).
+- **Consequences:** PRoot detection is a constrained convenience, not a security boundary. The installer still refuses when the resolved destination escapes `$HOME`. Tag-triggered releases work because the resolved ref is already the tag; manual dispatch must supply an existing tag. A tag whose commit does not match the checked-out HEAD fails the workflow before building.
+
+## ADR-017 — Deterministic OMP discovery selection
+
+- **Status:** Accepted and implemented; CLI tests cover each selection branch
+- **Decision:** Treat an explicit `--omp-bin` or `OMP_BRIDGE_OMP_BIN` as a hard requirement: if it is unusable, fail with `OMP_REQUESTED_UNAVAILABLE` and never fall back to `PATH` or a saved installation. Keep a valid saved `ompBin` even when a newer `PATH` candidate appears. If the saved executable disappears, fail with `OMP_SAVED_UNAVAILABLE` and keep the saved config until the user runs `setup --omp-bin`. With neither override nor saved config, select the first valid `PATH` or documented-location candidate, deterministically.
+- **Context:** Silent fallback made it impossible to tell which OMP the bridge would run. A changed `PATH` could replace the saved installation without user intent, and a user who passes `--omp-bin` expects that exact binary or an error.
+- **Alternatives:** Always prefer the newest `PATH` candidate (rejected: silent switching); always prefer saved config and ignore explicit flags (rejected: breaks one-run overrides); recursive search (rejected: unpredictable and slow).
+- **Consequences:** `setup` and `doctor` print the selected path, version, and source. A missing saved path is an explicit error, not silent re-discovery. Tests assert no fallback for explicit paths, no switching when the saved path disappears, explicit replacement of a saved installation, and first-valid `PATH` selection.
 
 ## Open decisions (must be resolved with evidence)
 

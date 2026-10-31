@@ -1,18 +1,18 @@
 # Current Checkpoint
 
-> Phase 1.5 bridge installer, OMP discovery, persistent configuration, background lifecycle, and mobile loopback auto-detection are implemented and tested on the host against real OMP `18.14.0`. Android device verification of the new UI, GitHub Actions release execution, and native Termux support remain unverified. Measured on 2026-10-31.
+> Phase 1.5 bridge installer, OMP discovery, persistent configuration, background lifecycle, and mobile loopback auto-detection are implemented and tested on the host against real OMP `18.14.0`. PRoot-aware root handling, exact-tag release checkout, and no-silent-fallback discovery are added. The Phase 1.5 APK is built by CI but not yet installed on a device, and the first official `v0.0.1` release awaits merge approval. Measured on 2026-10-31.
 
 ## Snapshot
 
 - **Project:** OMP Client
 - **Milestone:** Phase 1.5 — bridge install, discovery, lifecycle, and mobile auto-detection
-- **Status:** Host lifecycle **PASS** with real OMP. Rust/frontend/installer automated checks **PASS**. Android CI **PASS**. Bridge release `v0.1.0` published and the HTTPS installer verified. Phase 1.5 mobile UI is code/test verified but not installed on a device.
+- **Status:** Host lifecycle **PASS** with real OMP. Rust/frontend/installer/release-workflow checks **PASS**. Android CI **PASS** (run `41248850886`, APK artifact downloaded with SHA-256). PRoot install and HTTPS installer verified against the existing test release. First official `v0.0.1` release and device verification await user approval/merge.
 - **Branch:** `Rust-Bridge-and-Android-Loopback` (placeholder branch from `main`), pushed to `origin`.
-- **Base commit:** `92acf28` (`docs: record verified Android pairing and live bridge state`)
-- **Code commit:** `d4105c6` (`feat(bridge): add lifecycle CLI, OMP discovery, installer, and mobile auto-detection`).
-- **Release:** `v0.1.0` at `1dd34ab`; assets built by run `41229501353`.
+- **Code commit:** `eb76441` (`fix(ci): avoid shellcheck SC2015 in release assertions`), after `6f38b61` (`fix(release): harden PRoot install, tag checkout, discovery, and update`).
+- **Version:** workspace and mobile app now `0.0.1` for the pre-release testing series; existing release `v0.1.0` at `1dd34ab` remains a published installer-test artifact and is superseded by the planned `v0.0.1`.
+- **Release:** no official release for this branch yet; `v0.1.0` remains published from earlier testing.
 - **Pull request:** [#3](https://github.com/xeriomy/omp-mobile/pull/3), open against `main`; checks pass.
-- **Working tree:** clean after the follow-up checkpoint commit.
+- **Working tree:** clean.
 - **Last updated:** 2026-10-31
 
 ## Environment (measured)
@@ -42,10 +42,11 @@
 
 ### OMP discovery (`discovery.rs`)
 
-- Candidate order: `--omp-bin`, `OMP_BRIDGE_OMP_BIN`, saved `ompBin`, every `omp` on `PATH`, documented user-writable locations, manual path.
+- Candidate order: `--omp-bin`, `OMP_BRIDGE_OMP_BIN`, saved `ompBin`, every `omp` on `PATH`, documented user-writable locations.
 - Documented locations include `~/.local/bin`, `~/.omp/bin`, `~/bin`, `~/.local/share/omp/bin`, `$PREFIX/bin`, `/usr/local/bin`, and `/usr/bin`.
 - Never walks a filesystem tree and never invokes a shell.
-- Duplicate candidates are removed by canonical path; the first valid candidate wins.
+- Duplicate candidates are removed by canonical path.
+- Selection policy: an explicit `--omp-bin`/`OMP_BRIDGE_OMP_BIN` must be usable and never falls back to PATH; a valid saved installation is kept and never silently replaced; if the saved executable disappears, `setup` fails with `OMP_SAVED_UNAVAILABLE` and keeps the saved config until the user reruns `setup --omp-bin`. With neither override nor saved config, the first valid `PATH`/known-location candidate wins deterministically.
 - Validation: regular executable file, bounded `omp --version`, `18.x` at or above `18.13.3`, then a real `ready`/protocol negotiation/`get_state` startup.
 - `setup` and `doctor` print classified failures without provider keys, prompts, or file contents.
 
@@ -73,10 +74,11 @@
 ### Installer and release
 
 - `scripts/install-bridge.sh` downloads `omp-bridge-<target>` and `.sha256` from GitHub Releases, verifies SHA-256 before replacement, installs to `~/.local/bin` by default, and never uses `sudo`.
-- Rejects root unless `OMP_BRIDGE_ALLOW_ROOT=1`, rejects native Termux/musl/unknown architectures, and refuses to replace a running bridge.
+- Root handling distinguishes PRoot from ordinary root. PRoot markers (`container=proot-distro`, `PROOT_L2S_DIR`, `PROOT_TMP_DIR`, `PROOT_LOADER`) allow a root install only with a printed warning and only under `$HOME`. Ordinary root is still refused unless `OMP_BRIDGE_ALLOW_ROOT=1`, which prints its own warning.
+- Rejects native Termux/musl/unknown architectures, and refuses to replace a running bridge.
 - `OMP_BRIDGE_RELEASE_BASE_URL` supports local `file://` installer tests.
-- `.github/workflows/bridge-release.yml` builds `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu` with `--locked`, strips them, publishes SHA-256 files, and checks that a `v*` tag matches the workspace version.
-- Android CI now runs `shellcheck`, `bash -n`, and the installer tests.
+- `.github/workflows/bridge-release.yml` validates the requested tag first (`^v<semver>$`), checks out that exact tag, requires a detached HEAD matching the tag and tag commit, verifies the workspace version, records the source commit SHA in `dist/BUILD_INFO.txt`, release notes, and the run summary, and builds both glibc targets with `--locked` plus SHA-256 files.
+- Android CI runs `shellcheck`, `bash -n`, the installer tests, and `scripts/test-release-workflow.sh` assertions for exact-tag ordering and metadata.
 
 ## Evidence
 
@@ -94,31 +96,34 @@ Results:
 
 - `cargo fmt`: exit 0.
 - `cargo clippy -D warnings`: exit 0.
-- `cargo test --workspace`: **78 passed, 0 failed, 1 ignored**.
+- `cargo test --workspace`: **83 passed, 0 failed, 1 ignored**.
   - omp-bridge unit: 40 passed.
-  - CLI lifecycle integration: 6 passed.
+  - CLI lifecycle integration: 11 passed.
   - engine lifecycle integration: 11 passed.
   - HTTP/WebSocket integration: 10 passed.
   - omp-rpc unit: 11 passed.
   - harness and doc tests: 0 tests.
   - `real_omp`: 1 ignored by default.
 
-The CLI lifecycle tests use the labeled fake OMP fixture and cover setup, config shape/permissions, background start, status JSON, second-start rejection, logs, stop, uninstall dry-run, `--yes` refusal, doctor RPC, `config --path`/`--json`, and non-loopback rejection.
+The CLI lifecycle tests use the labeled fake OMP fixture and cover setup, config shape/permissions, background start, status JSON, second-start rejection, logs, stop, uninstall dry-run, `--yes` refusal, doctor RPC, `config --path`/`--json`, non-loopback rejection, explicit `--omp-bin` without fallback, saved-OMP disappearance without switching, explicit replacement of a saved installation, first-valid `PATH` selection, and informational `update` output.
 
 HTTP tests additionally cover the capabilities identity document and assert it does not leak token, pairing, path, or workspace data.
 
 ### Real OMP lifecycle (host)
 
-Fresh run with an isolated config home:
+Fresh run with an isolated config home (this session):
 
 ```sh
-export OMP_BRIDGE_HOME=/tmp/opencode/checkpoint-home
-omp-bridge setup --workspace /tmp/opencode/real-omp-workspace
-omp-bridge start
-omp-bridge status
-curl -fsS http://127.0.0.1:8765/api/v1/capabilities
-omp-bridge logs --lines 6
-omp-bridge stop
+export OMP_BRIDGE_HOME=/tmp/opencode/phase15-real/config
+export HOME=/tmp/opencode/phase15-real/home
+export PATH="/root/.local/bin:/usr/bin:/bin"
+./target/debug/omp-bridge setup --workspace /tmp/opencode/phase15-real/workspace \
+  --listen 127.0.0.1:8865 --model opencode-zen/beam-free
+./target/debug/omp-bridge start
+./target/debug/omp-bridge status
+curl -fsS http://127.0.0.1:8865/api/v1/capabilities
+./target/debug/omp-bridge logs --lines 5
+./target/debug/omp-bridge stop
 ```
 
 Key output (pairing code intentionally omitted):
@@ -130,35 +135,36 @@ OMP discovery: Found
   OMP:       /root/.local/bin/omp (18.14.0)
   Protocol:  v2
   Model:     opencode-zen/beam-free
-  Saved:     /tmp/opencode/checkpoint-home/config.json
+  Saved:     /tmp/opencode/phase15-real/config/config.json
 
 OMP Bridge status: engine ready
-  Listen:     127.0.0.1:8765
+  Listen:     127.0.0.1:8865
   OMP version:18.14.0
   Engine:     ready (ready)
   Model:      opencode-zen/beam-free
-  Workspace:  /tmp/opencode/real-omp-workspace
   Platform:   linux aarch64 / glibc / proot
 
-{"product":"omp-bridge","apiVersion":"v1","bridgeVersion":"0.1.0","eventVersion":1,"features":["pairing","status","events","token-revoke"]}
+{"product":"omp-bridge","apiVersion":"v1","bridgeVersion":"0.0.1","eventVersion":1,"features":["pairing","status","events","token-revoke"]}
 
-2026-10-31T01:17:31Z INFO  starting bridge pid 8272 on 127.0.0.1:8765
-2026-10-31T01:17:31Z INFO  OMP /root/.local/bin/omp (cwd /tmp/opencode/real-omp-workspace)
-2026-10-31T01:18:02Z INFO  pairing code delivered through the private startup handshake
+2026-10-31T18:53:29Z INFO  starting bridge pid 31821 on 127.0.0.1:8865
+2026-10-31T18:53:34Z INFO  pairing code delivered through the private startup handshake
 
-Stopped bridge PID 8272.
+Stopped bridge PID 31821.
 OMP Bridge status: stopped
 ```
+
+Setup here used no `--omp-bin`: real OMP `18.14.0` was found on `PATH`. A
+missing model produced the explicit `OMP_MISSING_MODEL` failure before the
+model override was supplied.
 
 Permission and secret checks:
 
 ```text
-700 /tmp/opencode/checkpoint-home
-600 /tmp/opencode/checkpoint-home/config.json
-700 /tmp/opencode/checkpoint-home/logs
-600 /tmp/opencode/checkpoint-home/logs/bridge.log
-600 /tmp/opencode/checkpoint-home/run/state.json
-grep <pairing code>: 0 matches in config.json and bridge.log
+700 /tmp/opencode/phase15-real/config
+600 /tmp/opencode/phase15-real/config/config.json
+700 /tmp/opencode/phase15-real/config/logs
+600 /tmp/opencode/phase15-real/config/logs/bridge.log
+600 /tmp/opencode/phase15-real/config/run/state.json
 ```
 
 The runtime lock file is mode `0644`; it contains no secrets.
@@ -182,18 +188,20 @@ test real_omp_boots_negotiates_and_serves_authenticated_status ... ok
 
 The test starts real OMP through `RunningBridge`, asserts engine ready, protocol v2, a real model, authenticated HTTP status, absence of `systemPrompt`/`sessionFile`, and clean shutdown. No prompt was sent.
 
-### Installer, shell, and manifest checks
+### Installer, release-workflow, shell, and manifest checks
 
 ```sh
 shellcheck scripts/*.sh
 sh scripts/test-install-bridge.sh
+sh scripts/test-release-workflow.sh
 node scripts/validate-manifest.mjs
 ```
 
 Results:
 
 - `shellcheck`: exit 0.
-- Installer tests: `installer tests passed (aarch64-unknown-linux-gnu)`. Covers target detection, successful local install, root refusal, bad-checksum refusal without replacing the existing binary, and running-bridge refusal.
+- Installer tests: `installer tests passed (aarch64-unknown-linux-gnu)`. Covers target detection, successful local install, ordinary-root refusal, PRoot root install with warning, PRoot `$HOME` confinement, `PROOT_L2S_DIR` detection, explicit container override with warning, bad-checksum refusal without replacing the existing binary, and running-bridge refusal.
+- Release workflow assertions: passed. Verified the resolve-tag → exact-tag checkout → verify/version/commit → build ordering plus `BUILD_INFO.txt` and summary metadata.
 - Manifest: `PACK_MANIFEST.json OK: 68 files present, no prompt-pack references.`
 
 ### Frontend checks
@@ -218,27 +226,39 @@ Node tests cover URL normalization/rejection, stable error codes, capability val
 
 ### Android CI
 
-GitHub Actions run [`41229498072`](https://github.com/xeriomy/omp-mobile/actions/runs/41229498072) on commit `1dd34ab`: **PASS** in 5m13s. The workflow ran the root Rust `fmt`/`clippy`/`test` checks, installer `shellcheck` and tests, frontend format/test/check/build, and the arm64-v8a Android debug APK build. The artifact was not downloaded or installed on a device.
+GitHub Actions run [`41248850886`](https://github.com/xeriomy/omp-mobile/actions/runs/41248850886) on commit `eb76441`: **PASS** in 5m50s. The workflow ran the root Rust `fmt`/`clippy`/`test` checks, installer `shellcheck` and tests, release-workflow assertions, frontend format/test/check/build, and the arm64-v8a Android debug APK build. The artifact was downloaded here but not installed on a device. The prior run `41231632979` failed on shellcheck `SC2015` in `scripts/test-release-workflow.sh` and was fixed in `eb76441`. Older recorded runs (`41225948350`, `41226578478`, `41229498072`, `41230036404`) are superseded by `41248850886`.
+
+### Android APK artifact (Phase 1.5 build)
+
+Downloaded from run [`41248850886`](https://github.com/xeriomy/omp-mobile/actions/runs/41248850886):
+
+| Field | Value |
+|---|---|
+| Artifact | `omp-client-android-debug-00a11463231efeceb419c6bfcff28cf9b9384658` |
+| File | `app-universal-debug.apk` |
+| Size | 121,156,785 bytes |
+| SHA-256 | `c98a748613f113b882bd54190df4895d2a140e8cffb6e095b2d96354628dd7ac` |
+| App version | `0.0.1` (`apps/mobile/src-tauri/tauri.conf.json`) |
+| Commit | `eb76441` |
+| ABI | `arm64-v8a` (universal debug APK) |
+| Signing | Android debug certificate, not a release key |
+
+Physical-device install, loopback detection, capabilities validation, pairing, saved URL behavior, and manual fallback are **not yet verified**; the user must install this APK.
 
 ### Bridge release and HTTPS installer
 
-GitHub Actions run [`41229501353`](https://github.com/xeriomy/omp-mobile/actions/runs/41229501353) on tag `v0.1.0`: **PASS** in 2m43s. Published release [v0.1.0](https://github.com/xeriomy/omp-mobile/releases/tag/v0.1.0) with:
+Existing release [v0.1.0](https://github.com/xeriomy/omp-mobile/releases/tag/v0.1.0) (run `41229501353`, commit `1dd34ab`) remains published with `omp-bridge-aarch64-unknown-linux-gnu` (3,741,104 bytes) and `omp-bridge-x86_64-unknown-linux-gnu` (4,139,624 bytes) plus `.sha256` files. It predates the version policy change to `0.0.1` and the exact-tag checkout fix; treat it as an installer-test artifact, not the official Phase 1.5 release.
 
-- `omp-bridge-aarch64-unknown-linux-gnu` (3,741,104 bytes);
-- `omp-bridge-x86_64-unknown-linux-gnu` (4,139,624 bytes);
-- a `.sha256` file for each target.
-
-The first release attempt failed because the cross linker lacked `Scrt1.o`/`crti.o`; commit `1dd34ab` added `libc6-dev-arm64-cross`. The tag was moved to that commit and the rerun passed.
-
-The HTTPS installer was exercised from the feature branch into a temporary directory:
+The HTTPS installer was exercised against that release using the new PRoot behavior from this branch, with the install confined to a temporary `$HOME`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/xeriomy/omp-mobile/Rust-Bridge-and-Android-Loopback/scripts/install-bridge.sh \
-  | OMP_BRIDGE_ALLOW_ROOT=1 OMP_BRIDGE_INSTALL_DIR=/tmp/opencode/bridge-install sh
-/tmp/opencode/bridge-install/omp-bridge --version
+HOME=/tmp/opencode/proot-install-home sh scripts/install-bridge.sh --version v0.1.0
+/tmp/opencode/proot-install-home/.local/bin/omp-bridge --version
 ```
 
-Result: checksum `OK`, installed `omp-bridge 0.1.0`.
+Result: `warning: detected PRoot; root is the PRoot container user, not Android device root. Installing under /tmp/opencode/proot-install-home only.`, checksum `OK`, installed `omp-bridge 0.1.0`.
+
+The first official release will be `v0.0.1` after the user approves and PR #3 merges; it must then be tested through the installer over HTTPS.
 
 ## Security review
 
@@ -260,6 +280,7 @@ Result: checksum `OK`, installed `omp-bridge 0.1.0`.
 
 - **Phase 1.5 UI not device-verified.** The auto-detection screen, manual fallback, saved-URL behavior, and capabilities validation pass code tests only. The previous Phase 1 APK evidence predates this UI.
 - **No working `adb`.** On-device install, `adb logcat`, restart, lifecycle, and keyboard behavior cannot be captured here.
+- **Official release not published.** `v0.0.1` requires PR #3 approval and merge to `main`. The existing `v0.1.0` release is a superseded installer-test artifact.
 - **Native Termux unsupported.** Release binaries are glibc-only; the installer rejects Termux/bionic, musl, and unknown architectures. Termux support needs a real build and runtime test.
 - **No OpenAPI contract package.** The v1 subset is documented in `Specs/BRIDGE_API_SPEC.md`; `packages/contracts` and generated-type drift checks do not exist.
 - **No prompt/control API.** Chat, abort, sessions, model selection, files, Git, and extension UI remain future phases.
@@ -269,4 +290,4 @@ Result: checksum `OK`, installed `omp-bridge 0.1.0`.
 
 ## Next best action
 
-Install the released `v0.1.0` bridge in the Android PRoot environment with `OMP_BRIDGE_ALLOW_ROOT=1`, run `omp-bridge setup` and `omp-bridge start`, then verify the installed Phase 1.5 APK auto-detects the bridge, validates capabilities, pairs, and shows real state. After that, add the OpenAPI/event contract package with generated types and a drift check before starting the Phase 3 prompt path.
+Get approval on PR [#3](https://github.com/xeriomy/omp-mobile/pull/3) and merge it to `main`. Then publish `v0.0.1`, verify both release assets and their `.sha256` files, and re-run the HTTPS installer in the Android PRoot environment. Install APK `omp-client-android-debug-00a11463231efeceb419c6bfcff28cf9b9384658` (SHA-256 `c98a748613f113b882bd54190df4895d2a140e8cffb6e095b2d96354628dd7ac`) and record device evidence for auto-detection, capabilities, pairing, saved URL, manual fallback, clear-saved-URL, and rejection of arbitrary listeners. Do not start the Chat UI before that evidence exists.

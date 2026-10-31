@@ -50,15 +50,24 @@ To pin a version or directory:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/xeriomy/omp-mobile/main/scripts/install-bridge.sh \
-  | OMP_BRIDGE_VERSION=v0.1.0 OMP_BRIDGE_INSTALL_DIR="$HOME/.local/bin" sh
+  | OMP_BRIDGE_VERSION=v0.0.1 OMP_BRIDGE_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
 Native Termux, musl, and unknown architectures are rejected until they are
 built and tested. The supported first-release route is glibc Linux, including
 Ubuntu under PRoot on Android.
 
-If you are root inside a container or PRoot (common on Android), opt in for
-that install. Do not run the bridge as root on a normal multi-user host:
+If you are root inside Ubuntu PRoot (the usual Android 15 setup), the installer
+detects PRoot environment markers (`container=proot-distro`, `PROOT_*`), warns
+that this root is the container user rather than Android device root, and keeps
+the install inside `$HOME`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/xeriomy/omp-mobile/main/scripts/install-bridge.sh | sh
+```
+
+If root detection cannot see PRoot (for example a minimal container), opt in
+explicitly. Do not use this on a normal multi-user host:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/xeriomy/omp-mobile/main/scripts/install-bridge.sh \

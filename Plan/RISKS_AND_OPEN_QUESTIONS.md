@@ -56,13 +56,18 @@
 
 ### R12. Release supply chain and installer behavior
 - **Risk:** a corrupted or substituted release asset installs a malicious bridge, or the installer overwrites a running binary.
-- **Mitigation:** publish SHA-256 for every asset; verify before replacement; refuse a running bridge; never use `sudo`; reject unsupported platforms; keep self-update out of the binary.
-- **Current evidence:** `scripts/test-install-bridge.sh` covers checksum failure, root refusal, target detection, and running-bridge refusal. The release workflow has not run on GitHub Actions yet.
+- **Mitigation:** publish SHA-256 for every asset; verify before replacement; refuse a running bridge; never use `sudo`; reject unsupported platforms; keep self-update out of the binary; build only from the validated tag commit.
+- **Current evidence:** `scripts/test-install-bridge.sh` covers checksum failure, ordinary-root refusal, PRoot install with warning, PRoot `$HOME` confinement, target detection, and running-bridge refusal. `scripts/test-release-workflow.sh` asserts exact-tag checkout and build metadata. Android CI run `41248850886` passed. The test release `v0.1.0` installed over HTTPS into a temporary PRoot `$HOME` with checksum `OK`.
 
 ### R13. Unauthenticated capability fingerprint
 - **Risk:** `/api/v1/capabilities` reveals bridge presence and versions to any loopback caller.
 - **Mitigation:** return only product/API/event versions and feature names; no paths, workspace, model, engine state, tokens, or pairing data. Pairing remains explicit and rate-limited.
 - **Current evidence:** HTTP test asserts the response excludes token, pairing-code, OMP path, and workspace fields.
+
+### R14. PRoot detection mistaken for device root
+- **Risk:** a user or tool reads the PRoot warning as permission to install as Android device root, or the detection is spoofed outside a container.
+- **Mitigation:** the warning states this is the PRoot container user, not Android root; the install must resolve under `$HOME` and contain no `..`; ordinary root still needs `OMP_BRIDGE_ALLOW_ROOT=1`; the binary never performs root-only actions.
+- **Current evidence:** installer fixtures cover the warning, `$HOME` escape refusal, `PROOT_L2S_DIR` detection, and explicit override warning. This is a convenience guard, not a security boundary.
 
 ## Questions that require a decision only after evidence
 - Should desktop builds be supported in MVP, or only Android-first with desktop as developer convenience?

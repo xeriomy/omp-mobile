@@ -57,6 +57,14 @@ Native Termux, musl, and unknown architectures are rejected until they are
 built and tested. The supported first-release route is glibc Linux, including
 Ubuntu under PRoot on Android.
 
+If you are root inside a container or PRoot (common on Android), opt in for
+that install. Do not run the bridge as root on a normal multi-user host:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/xeriomy/omp-mobile/main/scripts/install-bridge.sh \
+  | OMP_BRIDGE_ALLOW_ROOT=1 sh
+```
+
 Then:
 
 ```sh

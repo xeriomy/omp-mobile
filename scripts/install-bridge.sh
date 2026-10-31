@@ -77,7 +77,7 @@ if [ "$PRINT_TARGET" = "1" ]; then
 fi
 
 if [ "$(id -u)" = "0" ] && [ "${OMP_BRIDGE_ALLOW_ROOT:-0}" != "1" ]; then
-  die "refusing to install as root; run as the user who will run omp-bridge"
+  die "refusing to install as root; run as the user who will run omp-bridge, or set OMP_BRIDGE_ALLOW_ROOT=1 in a root-only container or PRoot"
 fi
 
 for command in curl sha256sum install mktemp; do

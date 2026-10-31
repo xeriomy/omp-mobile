@@ -105,6 +105,8 @@ pub enum DiscoveryStatus {
     UnsupportedVersion,
     MissingRuntimeDependency,
     RpcStartupFailure,
+    RequestedUnavailable,
+    SavedUnavailable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,6 +229,42 @@ pub fn known_locations() -> Vec<PathBuf> {
     locations
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectionMode {
+    Explicit,
+    Environment,
+    Saved,
+    Auto,
+}
+
+fn selection_mode(explicit: Option<&Path>, saved: Option<&Path>) -> SelectionMode {
+    if explicit.is_some() {
+        SelectionMode::Explicit
+    } else if std::env::var_os("OMP_BRIDGE_OMP_BIN").is_some() {
+        SelectionMode::Environment
+    } else if saved.is_some() {
+        SelectionMode::Saved
+    } else {
+        SelectionMode::Auto
+    }
+}
+
+fn select_installation(
+    installations: &[OmpInstallation],
+    mode: SelectionMode,
+) -> Option<OmpInstallation> {
+    let source = match mode {
+        SelectionMode::Explicit => CandidateSource::Cli,
+        SelectionMode::Environment => CandidateSource::Environment,
+        SelectionMode::Saved => CandidateSource::Saved,
+        SelectionMode::Auto => return installations.first().cloned(),
+    };
+    installations
+        .iter()
+        .find(|installation| installation.source == source)
+        .cloned()
+}
+
 /// Validate candidates and select one. This checks executable shape and
 /// `--version`; callers that need full compatibility must also call
 /// [`verify_installation`], which starts the real RPC process.
@@ -240,6 +278,7 @@ pub async fn discover(
         return OmpDiscoveryResult::not_found(searched);
     }
 
+    let mode = selection_mode(explicit, saved);
     let mut validated = Vec::with_capacity(candidates.len());
     for mut candidate in candidates {
         candidate.status = validate_candidate(&candidate.path, version_timeout).await;
@@ -260,33 +299,72 @@ pub async fn discover(
         })
         .collect();
 
-    let status = if installations.is_empty() {
-        if validated
-            .iter()
-            .any(|candidate| matches!(candidate.status, CandidateStatus::UnsupportedVersion { .. }))
+    let selected = select_installation(&installations, mode);
+    let status = match (&selected, installations.is_empty()) {
+        (Some(_), false) if installations.len() > 1 => DiscoveryStatus::Multiple,
+        (Some(_), false) => DiscoveryStatus::Found,
+        (Some(_), true) => unreachable!("selection requires a valid installation"),
+        (None, true) if mode == SelectionMode::Saved => DiscoveryStatus::SavedUnavailable,
+        (None, true) if mode != SelectionMode::Auto => DiscoveryStatus::RequestedUnavailable,
+        (None, true)
+            if validated.iter().any(|candidate| {
+                matches!(candidate.status, CandidateStatus::UnsupportedVersion { .. })
+            }) =>
         {
             DiscoveryStatus::UnsupportedVersion
-        } else if validated.iter().any(|candidate| {
-            matches!(
-                candidate.status,
-                CandidateStatus::MissingRuntimeDependency { .. }
-            )
-        }) {
-            DiscoveryStatus::MissingRuntimeDependency
-        } else {
-            DiscoveryStatus::InvalidExecutable
         }
-    } else if installations.len() > 1 {
-        DiscoveryStatus::Multiple
-    } else {
-        DiscoveryStatus::Found
+        (None, true)
+            if validated.iter().any(|candidate| {
+                matches!(
+                    candidate.status,
+                    CandidateStatus::MissingRuntimeDependency { .. }
+                )
+            }) =>
+        {
+            DiscoveryStatus::MissingRuntimeDependency
+        }
+        (None, true) => DiscoveryStatus::InvalidExecutable,
+        (None, false) if mode == SelectionMode::Saved => DiscoveryStatus::SavedUnavailable,
+        (None, false) => DiscoveryStatus::RequestedUnavailable,
     };
 
-    let selected = installations.first().cloned();
-    let errors = validated
+    let mut errors = validated
         .iter()
         .filter_map(candidate_error)
         .collect::<Vec<_>>();
+    if selected.is_none() {
+        match mode {
+            SelectionMode::Saved => {
+                if let Some(path) = saved {
+                    errors.insert(
+                        0,
+                        OmpDiscoveryError::new(
+                            "OMP_SAVED_UNAVAILABLE",
+                            format!(
+                                "saved OMP installation {} is no longer usable; run `omp-bridge setup --omp-bin <path>` to replace it",
+                                path.display()
+                            ),
+                        ),
+                    );
+                }
+            }
+            SelectionMode::Explicit => {
+                if let Some(path) = explicit {
+                    errors.insert(
+                        0,
+                        OmpDiscoveryError::new(
+                            "OMP_REQUESTED_UNAVAILABLE",
+                            format!(
+                                "requested OMP executable {} is not usable; fix --omp-bin or OMP_BRIDGE_OMP_BIN",
+                                path.display()
+                            ),
+                        ),
+                    );
+                }
+            }
+            SelectionMode::Environment | SelectionMode::Auto => {}
+        }
+    }
 
     OmpDiscoveryResult {
         status,

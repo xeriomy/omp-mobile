@@ -140,6 +140,7 @@ jobs:
           shellcheck scripts/*.sh
           bash -n scripts/install-bridge.sh
           scripts/test-install-bridge.sh
+          scripts/test-release-workflow.sh
 
       - name: Run frontend checks
         working-directory: apps/mobile

@@ -456,7 +456,7 @@ async fn doctor(paths: &ConfigPaths, overrides: &ConfigOverrides) -> Result<(), 
 
     let result = discover(
         overrides.omp_bin.as_deref(),
-        Some(&stored.omp_bin),
+        existing.as_ref().map(|config| config.omp_bin.as_path()),
         VERSION_TIMEOUT,
     )
     .await;
@@ -578,10 +578,13 @@ fn config_command(
 
 fn update() -> Result<(), String> {
     println!("OMP Bridge {BRIDGE_VERSION}");
-    println!("Self-update is intentionally not implemented.");
-    println!("To upgrade, download the release asset for your platform and verify its SHA-256:");
-    println!("  https://github.com/xeriomy/omp-mobile/releases");
-    println!("Then stop the bridge, replace the binary, and run `omp-bridge doctor`.");
+    println!("This command is informational only; it does not update the binary.");
+    println!("Use the official installer, which verifies the published SHA-256:");
+    println!(
+        "  curl -fsSL https://raw.githubusercontent.com/xeriomy/omp-mobile/main/scripts/install-bridge.sh | sh"
+    );
+    println!("If the bridge is running, stop it first: omp-bridge stop");
+    println!("Then install and run `omp-bridge doctor`.");
     Ok(())
 }
 

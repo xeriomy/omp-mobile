@@ -1,6 +1,6 @@
 {
   "name": "omp-client-mobile",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "OMP Client mobile shell (Tauri 2 + Svelte + TypeScript)",
   "private": true,
   "type": "module",

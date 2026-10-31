@@ -5,6 +5,6 @@ members = ["apps/bridge", "crates/omp-rpc", "spike/rpc-harness"]
 exclude = ["apps/mobile/src-tauri"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 publish = false

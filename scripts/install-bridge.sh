@@ -20,13 +20,38 @@ Usage: install-bridge.sh [--version <tag>] [--dir <path>] [--print-target]
 Environment:
   OMP_BRIDGE_VERSION       Release tag, for example v0.1.0 (default: latest)
   OMP_BRIDGE_INSTALL_DIR   Install directory (default: ~/.local/bin)
-  OMP_BRIDGE_ALLOW_ROOT=1  Allow running as root (containers and tests only)
+  OMP_BRIDGE_ALLOW_ROOT=1  Allow running as root on a non-PRoot host (tests only)
 EOF
 }
 
 die() {
   printf 'install-bridge: %s\n' "$1" >&2
   exit 1
+}
+
+warn() {
+  printf 'install-bridge: warning: %s\n' "$1" >&2
+}
+
+is_proot() {
+  [ "${container:-}" = "proot-distro" ] ||
+    [ -n "${PROOT_L2S_DIR:-}" ] ||
+    [ -n "${PROOT_TMP_DIR:-}" ] ||
+    [ -n "${PROOT_LOADER:-}" ]
+}
+
+confine_proot_install() {
+  [ -n "${HOME:-}" ] || die "HOME is not set; cannot confine a PRoot root install"
+  case "$INSTALL_DIR" in
+    *..*) die "install directory must not contain '..': $INSTALL_DIR" ;;
+  esac
+  HOME_TRIMMED="${HOME%/}"
+  case "$INSTALL_DIR" in
+    "$HOME_TRIMMED" | "$HOME_TRIMMED"/*) ;;
+    *)
+      die "PRoot root install must stay under $HOME; set OMP_BRIDGE_INSTALL_DIR to a path under $HOME"
+      ;;
+  esac
 }
 
 while [ "$#" -gt 0 ]; do
@@ -76,8 +101,15 @@ if [ "$PRINT_TARGET" = "1" ]; then
   exit 0
 fi
 
-if [ "$(id -u)" = "0" ] && [ "${OMP_BRIDGE_ALLOW_ROOT:-0}" != "1" ]; then
-  die "refusing to install as root; run as the user who will run omp-bridge, or set OMP_BRIDGE_ALLOW_ROOT=1 in a root-only container or PRoot"
+if [ "$(id -u)" = "0" ]; then
+  if is_proot; then
+    warn "detected PRoot; root is the PRoot container user, not Android device root. Installing under $HOME only."
+    confine_proot_install
+  elif [ "${OMP_BRIDGE_ALLOW_ROOT:-0}" = "1" ]; then
+    warn "OMP_BRIDGE_ALLOW_ROOT=1 is set; allowing a root install. Prefer a non-root user on a normal host."
+  else
+    die "refusing to install as root; run as the user who will run omp-bridge, or set OMP_BRIDGE_ALLOW_ROOT=1 only in a root-only container"
+  fi
 fi
 
 for command in curl sha256sum install mktemp; do

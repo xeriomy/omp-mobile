@@ -6,11 +6,11 @@
 
 - **Project:** OMP Client
 - **Milestone:** Phase 1.5 — bridge install, discovery, lifecycle, and mobile auto-detection
-- **Status:** Host lifecycle **PASS** with real OMP. Rust/frontend/installer automated checks **PASS**. Phase 1.5 mobile UI is code/test verified but not installed on a device. Release workflow not executed.
-- **Branch:** `Rust-Bridge-and-Android-Loopback` (placeholder branch from `main`)
+- **Status:** Host lifecycle **PASS** with real OMP. Rust/frontend/installer automated checks **PASS**. Android CI **PASS** (run `41225948350`). Phase 1.5 mobile UI is code/test verified but not installed on a device. Bridge release workflow not executed.
+- **Branch:** `Rust-Bridge-and-Android-Loopback` (placeholder branch from `main`), pushed to `origin`.
 - **Base commit:** `92acf28` (`docs: record verified Android pairing and live bridge state`)
 - **Code commit:** `d4105c6` (`feat(bridge): add lifecycle CLI, OMP discovery, installer, and mobile auto-detection`).
-- **Pull request:** [#3](https://github.com/xeriomy/omp-mobile/pull/3), open against `main`.
+- **Pull request:** [#3](https://github.com/xeriomy/omp-mobile/pull/3), open against `main`; checks pass.
 - **Working tree:** clean after the follow-up checkpoint commit.
 - **Last updated:** 2026-10-31
 
@@ -214,6 +214,10 @@ Results:
 - `build`: PASS.
 
 Node tests cover URL normalization/rejection, stable error codes, capability validation, loopback-only discovery, and refusal of non-bridge listeners.
+
+### Android CI
+
+GitHub Actions run [`41225948350`](https://github.com/xeriomy/omp-mobile/actions/runs/41225948350) on commit `3252680`: **PASS** in 6m33s. The workflow ran the root Rust `fmt`/`clippy`/`test` checks, installer `shellcheck` and tests, frontend format/test/check/build, and the arm64-v8a Android debug APK build. The artifact was not downloaded or installed on a device.
 
 ## Security review
 

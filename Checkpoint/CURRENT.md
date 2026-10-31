@@ -6,9 +6,9 @@
 
 - **Project:** OMP Client
 - **Milestone:** Phase 1.5 — bridge install, discovery, lifecycle, and mobile auto-detection
-- **Status:** Host lifecycle **PASS** with real OMP. Rust/frontend/installer/release-workflow checks **PASS**. Android CI **PASS** (run `41248850886`, APK artifact downloaded with SHA-256). PRoot install and HTTPS installer verified against the existing test release. First official `v0.0.1` release and device verification await user approval/merge.
+- **Status:** Host lifecycle **PASS** with real OMP. Rust/frontend/installer/release-workflow checks **PASS**. Android CI **PASS** (run `41250496939` on the docs commit, after run `41248850886` on `eb76441`; APK artifact downloaded with SHA-256). PRoot install and HTTPS installer verified against the existing test release. First official `v0.0.1` release and device verification await user approval/merge.
 - **Branch:** `Rust-Bridge-and-Android-Loopback` (placeholder branch from `main`), pushed to `origin`.
-- **Code commit:** `eb76441` (`fix(ci): avoid shellcheck SC2015 in release assertions`), after `6f38b61` (`fix(release): harden PRoot install, tag checkout, discovery, and update`).
+- **Code commit:** `eb76441` (`fix(ci): avoid shellcheck SC2015 in release assertions`), after `6f38b61` (`fix(release): harden PRoot install, tag checkout, discovery, and update`). Documentation commit `2a07d53` (`docs: record Phase 1.5 CI, PRoot install, and release evidence`).
 - **Version:** workspace and mobile app now `0.0.1` for the pre-release testing series; existing release `v0.1.0` at `1dd34ab` remains a published installer-test artifact and is superseded by the planned `v0.0.1`.
 - **Release:** no official release for this branch yet; `v0.1.0` remains published from earlier testing.
 - **Pull request:** [#3](https://github.com/xeriomy/omp-mobile/pull/3), open against `main`; checks pass.
@@ -226,7 +226,9 @@ Node tests cover URL normalization/rejection, stable error codes, capability val
 
 ### Android CI
 
-GitHub Actions run [`41248850886`](https://github.com/xeriomy/omp-mobile/actions/runs/41248850886) on commit `eb76441`: **PASS** in 5m50s. The workflow ran the root Rust `fmt`/`clippy`/`test` checks, installer `shellcheck` and tests, release-workflow assertions, frontend format/test/check/build, and the arm64-v8a Android debug APK build. The artifact was downloaded here but not installed on a device. The prior run `41231632979` failed on shellcheck `SC2015` in `scripts/test-release-workflow.sh` and was fixed in `eb76441`. Older recorded runs (`41225948350`, `41226578478`, `41229498072`, `41230036404`) are superseded by `41248850886`.
+GitHub Actions run [`41248850886`](https://github.com/xeriomy/omp-mobile/actions/runs/41248850886) on commit `eb76441`: **PASS** in 5m50s. The workflow ran the root Rust `fmt`/`clippy`/`test` checks, installer `shellcheck` and tests, release-workflow assertions, frontend format/test/check/build, and the arm64-v8a Android debug APK build. The artifact was downloaded here but not installed on a device. The prior run `41231632979` failed on shellcheck `SC2015` in `scripts/test-release-workflow.sh` and was fixed in `eb76441`. Older recorded runs (`41225948350`, `41226578478`, `41229498072`, `41230036404`) are superseded.
+
+Documentation-only commit `2a07d53` also passed the same workflow in run [`41250496939`](https://github.com/xeriomy/omp-mobile/actions/runs/41250496939); no code changed after `eb76441`.
 
 ### Android APK artifact (Phase 1.5 build)
 

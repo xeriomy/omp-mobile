@@ -368,6 +368,12 @@ impl Engine {
         self.inner.status.read().expect("status lock").clone()
     }
 
+    /// PID of the managed OMP child, when it has been spawned.
+    pub fn pid(&self) -> Option<u32> {
+        let pid = self.inner.pid.load(Ordering::SeqCst);
+        u32::try_from(pid).ok().filter(|pid| *pid != 0)
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<BridgeEvent> {
         self.inner.events.subscribe()
     }

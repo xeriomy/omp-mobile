@@ -16,8 +16,8 @@ OMP Client is a mobile control surface for the existing OMP coding agent. Its ma
    - Avoid duplicating business logic already owned by the bridge.
 
 3. **OMP Bridge (`apps/bridge`)**
-   - Standalone Rust HTTP + WebSocket service, normally launched from Termux on the same Android device for local use.
-   - Owns OMP child processes, stdin/stdout/stderr, RPC protocol handling, session/runtime lifecycle, scoped workspace/file access, and Git read operations.
+   - Standalone Rust HTTP + WebSocket service, normally launched from Termux or a supported glibc Linux host on the same Android device for local use.
+   - Owns OMP discovery, persistent configuration, background process lifecycle, OMP child processes, stdin/stdout/stderr, RPC protocol handling, session/runtime lifecycle, scoped workspace/file access, and Git read operations.
    - Provides a versioned API for the client.
 
 4. **OMP executable**
@@ -25,7 +25,12 @@ OMP Client is a mobile control surface for the existing OMP coding agent. Its ma
    - First launch candidate: `omp --mode rpc-ui`, started with the workspace as the process working directory.
    - Provider configuration, API keys, extensions, and engine-specific tools remain in OMP's own environment.
 
-5. **Contracts (`packages/contracts`)**
+5. **Release assets (`scripts/`, `.github/workflows/bridge-release.yml`)**
+   - Build glibc Linux binaries for `aarch64` and `x86_64`.
+   - Publish SHA-256 files with the binaries.
+   - Install with `scripts/install-bridge.sh`; no self-update in the binary.
+
+6. **Contracts (`packages/contracts`)**
    - Versioned OpenAPI specification and WebSocket event schemas.
    - TypeScript types should be generated from the API contract where practical. Rust DTOs must be tested against the same contract.
 
@@ -51,7 +56,12 @@ OMP Client is a mobile control surface for the existing OMP coding agent. Its ma
 └──────────────────────────────────────────────────────────┘
 ```
 
-The bridge must be started explicitly from Termux for the first milestone. Do not promise that an Android app can arbitrarily launch or control a different app's process across sandbox boundaries. Improve startup ergonomics later only through a tested, supported integration.
+The bridge is installed once and started explicitly with `omp-bridge setup` and
+`omp-bridge start`. Background start detaches the bridge and redirects its logs;
+the pairing code is delivered through a private startup handshake and printed
+once. Do not promise that an Android app can arbitrarily launch or control a
+different app's process across sandbox boundaries. Improve startup ergonomics
+later only through a tested, supported integration.
 
 ### Later remote topology
 
@@ -71,16 +81,19 @@ A client can connect to a bridge on another host over a private network/VPN or a
 - Keep stdout protocol-only. Do not print logging, progress text, or panic messages to the child's stdout stream.
 - On bridge shutdown: stop accepting commands, cancel/close WebSocket subscribers, close OMP stdin, keep draining stdout until exit, then terminate after a bounded grace period if needed. Avoid orphan processes.
 
-## 4. Bridge modules (implemented Phase 1)
+## 4. Bridge modules (implemented Phase 1.5)
 
 ```text
 Cargo.toml                  # workspace: omp-bridge, omp-rpc, rpc-harness
 crates/omp-rpc/src/lib.rs   # bounded JSONL parsing + rpc_chunk reassembly
 apps/bridge/src/
-├── main.rs                 # CLI, doctor, startup/shutdown
+├── main.rs                 # subcommand CLI, setup/start/status/logs/uninstall
 ├── config.rs               # loopback/origin/limit/TTL validation
+├── config_store.rs         # persistent config, atomic writes, runtime state
+├── discovery.rs            # OMP candidates, version policy, RPC verification
+├── process_manager.rs      # detach, handshake, PID identity, logs, stop
 ├── api.rs                  # Axum routes, Host/Origin guard, WS auth/fan-out
-├── api_types.rs            # versioned DTOs, safe state projection, envelopes
+├── api_types.rs            # versioned DTOs, capabilities, safe state projection
 ├── auth.rs                 # pairing, hashed expiring tokens, revoke
 ├── engine.rs               # OMP process, RPC correlation, status, events
 └── server.rs               # RunningBridge bind/shutdown wrapper
@@ -89,6 +102,9 @@ apps/bridge/src/
 The bridge intentionally stays in a few modules until later features have
 callers. Workspace, files, Git, runtime multiplexing, and normalized typed OMP
 events are not implemented yet.
+
+Lifecycle and configuration behavior is specified in
+[`Specs/BRIDGE_LIFECYCLE_SPEC.md`](Specs/BRIDGE_LIFECYCLE_SPEC.md).
 
 ## 5. Frontend boundaries
 
@@ -114,17 +130,20 @@ The frontend must not reimplement RPC framing or access OMP's stdin/stdout. It c
 
 ## 6. API shape
 
-The implemented Phase 1 subset is documented exactly in
+The implemented subset is documented exactly in
 [`Specs/BRIDGE_API_SPEC.md`](Specs/BRIDGE_API_SPEC.md): `/healthz`,
-`POST /api/v1/pair`, authenticated `GET /api/v1/status`,
-`POST /api/v1/tokens/revoke`, and the first-message-authenticated
-`WS /api/v1/events`. The bridge owns one OMP child process; there is no runtime
-multiplexing or prompt action yet.
+unauthenticated `GET /api/v1/capabilities`, `POST /api/v1/pair`, authenticated
+`GET /api/v1/status`, `POST /api/v1/tokens/revoke`, and the
+first-message-authenticated `WS /api/v1/events`. The bridge owns one OMP child
+process; there is no runtime multiplexing or prompt action yet.
 
-All endpoints except a minimal, non-sensitive health check require authentication. Prefix REST with `/api/v1`. The following is the planned expansion, not current behavior:
+All endpoints except a minimal health check and the non-secret capabilities
+identity document require authentication. Prefix REST with `/api/v1`. The
+following is the planned expansion, not current behavior:
 
 - `GET /healthz` — minimal readiness status; no secret or workspace details.
-- `GET /api/v1/capabilities` — bridge/API version and supported UI features.
+- `GET /api/v1/capabilities` — implemented bridge/API/event versions and feature
+  names; no OMP path, workspace, model, or runtime state.
 - `GET /api/v1/workspaces` — configured allowed workspaces only.
 - `POST /api/v1/runtimes` — create/start an OMP runtime for an allowed workspace.
 - `GET /api/v1/runtimes/{runtimeId}/state` — authoritative state snapshot.
@@ -147,6 +166,9 @@ Do not hard-code the sketch above without documenting it in `packages/contracts/
 - Limit request bodies, WebSocket frame sizes, event queue sizes, file response sizes, RPC frame sizes, and in-flight operations.
 - Scope file access to configured workspace roots and canonicalize paths, including symlink handling.
 - No tokens or full prompts in logs. Use redacted structured events.
+- Persist only non-secret configuration. Keep config/runtime/handshake files private and write configuration atomically.
+- Install release binaries only after SHA-256 verification. Do not self-update or run the installer as root by default.
+- Validate recorded PIDs against executable path and start time before signalling; recover stale state without killing a reused PID.
 - Preserve OMP's own tool approval semantics. `rpc-ui` is required for dialogs/UI messages; do not add `--no-ui` without proving that no required approval flow is lost.
 
 ## 8. Error model and observability
@@ -160,17 +182,19 @@ Do not hard-code the sketch above without documenting it in `packages/contracts/
 
 Resolved:
 
-- OMP `18.13.3`, `--mode rpc-ui`, ready frame, protocol v2, and bounded chunk reassembly are verified (ADR-009).
+- OMP `18.13.3`, `--mode rpc-ui`, ready frame, protocol v2, and bounded chunk reassembly are verified (ADR-009); OMP `18.14.0` also passes the real RPC test.
 - Axum 0.8 + Tokio implement the loopback HTTP/WebSocket bridge (ADR-013).
+- Persistent config, discovery, background lifecycle, and the release installer are implemented (ADR-014).
 - The packaged Tauri Android origin is `http://tauri.localhost`; the development origin is `http://localhost:1420`. Both are exact allowlist entries.
 - The CSP now allows the loopback HTTP/WebSocket sources (ADR-012, amended by ADR-013).
 - Tokens stay in memory until a verified Android secure-storage adapter exists.
 
 Still open:
 
-- Android WebView loopback/CORS/cleartext behavior on a real installed build; no working `adb` here.
+- Android WebView loopback/CORS/cleartext behavior for the Phase 1.5 detection UI; no working `adb` here.
 - Session enumeration and stable public interfaces for historical sessions.
-- The Termux installation/build route for the standalone bridge beyond this PRoot host.
+- The Termux installation/build route for the standalone bridge beyond this glibc/PRoot host.
+- Release-workflow execution on GitHub Actions.
 - OpenAPI/event schema generation and drift checks.
 
 Record outcomes in `Plan/DECISIONS.md`. Do not convert assumptions into facts just because a compile succeeds.

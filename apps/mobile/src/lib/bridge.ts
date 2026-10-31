@@ -74,6 +74,15 @@ export interface PairResponse {
   expiresAt: number;
 }
 
+/** Unauthenticated identity document returned by `/api/v1/capabilities`. */
+export interface BridgeCapabilities {
+  product: string;
+  apiVersion: string;
+  bridgeVersion: string;
+  eventVersion: number;
+  features: string[];
+}
+
 export class BridgeError extends Error {
   readonly code: string;
   readonly status?: number;
@@ -182,6 +191,115 @@ export async function fetchHealth(baseUrl: string): Promise<void> {
   const health = await request<{ status: string }>(`${baseUrl}/healthz`, { method: 'GET' });
   if (health.status !== 'ok') {
     throw new BridgeError('Bridge health check did not report ok.', 'UNHEALTHY');
+  }
+}
+
+export async function fetchCapabilities(
+  baseUrl: string,
+  timeoutMs = 1200,
+): Promise<BridgeCapabilities> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const value = await request<unknown>(`${baseUrl}/api/v1/capabilities`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    return assertBridgeCapabilities(value);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Reject any listener that is not an OMP bridge with the expected contract. */
+export function assertBridgeCapabilities(value: unknown): BridgeCapabilities {
+  const candidate = value as Partial<BridgeCapabilities> | null;
+  if (
+    !candidate ||
+    candidate.product !== 'omp-bridge' ||
+    candidate.apiVersion !== 'v1' ||
+    candidate.eventVersion !== 1 ||
+    !Array.isArray(candidate.features) ||
+    !candidate.features.includes('pairing') ||
+    typeof candidate.bridgeVersion !== 'string'
+  ) {
+    throw new BridgeError(
+      'The listener answered, but it is not a compatible OMP bridge.',
+      'NOT_A_BRIDGE',
+    );
+  }
+  return candidate as BridgeCapabilities;
+}
+
+export interface DiscoveredBridge extends BridgeEndpoints {
+  capabilities: BridgeCapabilities;
+}
+
+const DEFAULT_DISCOVERY_PORTS = [8765, 8766, 8767];
+
+/**
+ * Probe only loopback addresses. Discovery never scans the LAN or accepts a
+ * remote host, because the bridge API is intentionally local-only.
+ */
+export async function discoverBridge(options?: {
+  ports?: number[];
+  timeoutMs?: number;
+}): Promise<DiscoveredBridge> {
+  const ports = options?.ports ?? DEFAULT_DISCOVERY_PORTS;
+  const timeoutMs = options?.timeoutMs ?? 700;
+  const candidates = ports.flatMap((port) => [
+    `http://127.0.0.1:${port}`,
+    `http://localhost:${port}`,
+  ]);
+  for (const candidate of candidates) {
+    try {
+      const capabilities = await fetchCapabilities(candidate, timeoutMs);
+      return { ...normalizeBridgeUrl(candidate), capabilities };
+    } catch {
+      // Try the next loopback candidate.
+    }
+  }
+  throw new BridgeError(
+    'No OMP bridge answered on loopback. Start `omp-bridge start`, then enter its URL manually.',
+    'BRIDGE_NOT_FOUND',
+  );
+}
+
+/** Probe one URL and require a compatible bridge identity. */
+export async function probeBridge(input: string): Promise<DiscoveredBridge> {
+  const endpoints = normalizeBridgeUrl(input);
+  const capabilities = await fetchCapabilities(endpoints.baseUrl);
+  return { ...endpoints, capabilities };
+}
+
+const SAVED_URL_KEY = 'omp-bridge.baseUrl';
+
+/** Only the non-secret URL is persisted. Tokens and pairing codes never are. */
+export function loadSavedBridgeUrl(): string | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage.getItem(SAVED_URL_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveBridgeUrl(url: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(SAVED_URL_KEY, url);
+    }
+  } catch {
+    // Storage can be unavailable; the URL is only a convenience.
+  }
+}
+
+export function clearSavedBridgeUrl(): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(SAVED_URL_KEY);
+    }
+  } catch {
+    // Ignore unavailable storage.
   }
 }
 

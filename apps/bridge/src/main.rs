@@ -1,16 +1,22 @@
-use clap::Parser;
+use clap::{Args, Parser, Subcommand};
 use omp_bridge::RunningBridge;
-use omp_bridge::api_types::EngineStatus;
+use omp_bridge::api_types::{BRIDGE_VERSION, EngineStatus};
 use omp_bridge::config::{
-    BridgeConfig, DEFAULT_ALLOWED_ORIGINS, DEFAULT_LISTEN, DEFAULT_MAX_FRAME_BYTES,
-    DEFAULT_MAX_REASSEMBLED_BYTES, DEFAULT_PAIRING_TTL_SECS, DEFAULT_REQUEST_TIMEOUT_SECS,
-    DEFAULT_STARTUP_TIMEOUT_SECS, DEFAULT_TOKEN_TTL_SECS,
+    BridgeConfig, DEFAULT_REQUEST_TIMEOUT_SECS, DEFAULT_STARTUP_TIMEOUT_SECS,
 };
-use omp_bridge::engine::redact_error;
+use omp_bridge::config_store::{
+    ConfigOverrides, ConfigPaths, StoredConfig, load_config, save_config,
+};
+use omp_bridge::discovery::{
+    VERSION_TIMEOUT, discover, format_discovery, platform_info, verify_installation,
+};
+use omp_bridge::process_manager::{
+    ProcessError, RuntimeLock, format_status, print_logs, run_background_child, running_pid,
+    start_background, status, stop, uninstall,
+};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
-use tokio::process::Command;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -19,76 +25,157 @@ use tokio::process::Command;
     about = "Authenticated loopback HTTP/WebSocket bridge for OMP RPC"
 )]
 struct Cli {
+    #[command(flatten)]
+    config: ConfigArgs,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+
+    /// Validate configuration and OMP without starting a persistent bridge.
+    #[arg(long)]
+    doctor: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct ConfigArgs {
     /// Path to the real OMP executable.
-    #[arg(long, env = "OMP_BRIDGE_OMP_BIN", default_value = "omp")]
-    omp_bin: PathBuf,
+    #[arg(long, global = true, env = "OMP_BRIDGE_OMP_BIN")]
+    omp_bin: Option<PathBuf>,
 
     /// Working directory for the OMP process.
-    #[arg(long, env = "OMP_BRIDGE_WORKSPACE", default_value = ".")]
-    workspace: PathBuf,
+    #[arg(long, global = true, env = "OMP_BRIDGE_WORKSPACE")]
+    workspace: Option<PathBuf>,
 
     /// Loopback listen address. Non-loopback addresses are rejected.
-    #[arg(long, env = "OMP_BRIDGE_LISTEN", default_value = DEFAULT_LISTEN)]
-    listen: String,
+    #[arg(long, global = true, env = "OMP_BRIDGE_LISTEN")]
+    listen: Option<String>,
 
     /// Exact browser origins allowed to call the bridge.
     #[arg(
         long,
+        global = true,
         env = "OMP_BRIDGE_ALLOWED_ORIGINS",
-        value_delimiter = ',',
-        default_value = DEFAULT_ALLOWED_ORIGINS
+        value_delimiter = ','
     )]
-    allowed_origins: Vec<String>,
+    allowed_origins: Option<Vec<String>>,
 
     /// Optional OMP model argument, for example provider/model.
-    #[arg(long, env = "OMP_BRIDGE_MODEL")]
+    #[arg(long, global = true, env = "OMP_BRIDGE_MODEL")]
     model: Option<String>,
 
-    #[arg(
-        long,
-        env = "OMP_BRIDGE_STARTUP_TIMEOUT_SECS",
-        default_value_t = DEFAULT_STARTUP_TIMEOUT_SECS
-    )]
-    startup_timeout_secs: u64,
+    #[arg(long, global = true, env = "OMP_BRIDGE_STARTUP_TIMEOUT_SECS")]
+    startup_timeout_secs: Option<u64>,
 
-    #[arg(
-        long,
-        env = "OMP_BRIDGE_REQUEST_TIMEOUT_SECS",
-        default_value_t = DEFAULT_REQUEST_TIMEOUT_SECS
-    )]
-    request_timeout_secs: u64,
+    #[arg(long, global = true, env = "OMP_BRIDGE_REQUEST_TIMEOUT_SECS")]
+    request_timeout_secs: Option<u64>,
 
-    #[arg(
-        long,
-        env = "OMP_BRIDGE_PAIRING_TTL_SECS",
-        default_value_t = DEFAULT_PAIRING_TTL_SECS
-    )]
-    pairing_ttl_secs: u64,
+    #[arg(long, global = true, env = "OMP_BRIDGE_PAIRING_TTL_SECS")]
+    pairing_ttl_secs: Option<u64>,
 
-    #[arg(
-        long,
-        env = "OMP_BRIDGE_TOKEN_TTL_SECS",
-        default_value_t = DEFAULT_TOKEN_TTL_SECS
-    )]
-    token_ttl_secs: u64,
+    #[arg(long, global = true, env = "OMP_BRIDGE_TOKEN_TTL_SECS")]
+    token_ttl_secs: Option<u64>,
 
-    #[arg(
-        long,
-        env = "OMP_BRIDGE_MAX_FRAME_BYTES",
-        default_value_t = DEFAULT_MAX_FRAME_BYTES
-    )]
-    max_frame_bytes: usize,
+    #[arg(long, global = true, env = "OMP_BRIDGE_MAX_FRAME_BYTES")]
+    max_frame_bytes: Option<usize>,
 
-    #[arg(
-        long,
-        env = "OMP_BRIDGE_MAX_REASSEMBLED_BYTES",
-        default_value_t = DEFAULT_MAX_REASSEMBLED_BYTES
-    )]
-    max_reassembled_bytes: usize,
+    #[arg(long, global = true, env = "OMP_BRIDGE_MAX_REASSEMBLED_BYTES")]
+    max_reassembled_bytes: Option<usize>,
 
-    /// Validate configuration and the OMP executable without starting the bridge.
+    #[arg(long, global = true, env = "OMP_BRIDGE_LOG_MAX_BYTES")]
+    log_max_bytes: Option<u64>,
+}
+
+impl ConfigArgs {
+    fn overrides(&self) -> ConfigOverrides {
+        ConfigOverrides {
+            omp_bin: self.omp_bin.clone(),
+            workspace: self.workspace.clone(),
+            model: self.model.clone(),
+            listen: self.listen.clone(),
+            allowed_origins: self.allowed_origins.clone(),
+            startup_timeout_secs: self.startup_timeout_secs,
+            request_timeout_secs: self.request_timeout_secs,
+            pairing_ttl_secs: self.pairing_ttl_secs,
+            token_ttl_secs: self.token_ttl_secs,
+            max_frame_bytes: self.max_frame_bytes,
+            max_reassembled_bytes: self.max_reassembled_bytes,
+            log_max_bytes: self.log_max_bytes,
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Detect OMP, verify an RPC startup, and save the bridge configuration.
+    Setup,
+    /// Start the bridge in the background. Use --foreground to stay attached.
+    Start(StartArgs),
+    /// Stop the background bridge and its OMP child.
+    Stop,
+    /// Stop and start the bridge.
+    Restart(StartArgs),
+    /// Show bridge, engine, and OMP status.
+    Status {
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show bridge log lines.
+    Logs {
+        /// Number of trailing lines.
+        #[arg(long, default_value_t = 200)]
+        lines: usize,
+        /// Keep printing new lines until interrupted.
+        #[arg(long)]
+        follow: bool,
+    },
+    /// Check configuration, discovery, platform, and a real RPC startup.
+    Doctor,
+    /// Show the saved configuration and file locations.
+    Config {
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+        /// Print only the configuration file path.
+        #[arg(long)]
+        path: bool,
+    },
+    /// Show how to upgrade the bridge safely.
+    Update,
+    /// Remove runtime files, logs, and the bridge binary. Configuration is kept
+    /// unless --purge is passed.
+    Uninstall {
+        /// Remove configuration as well.
+        #[arg(long)]
+        purge: bool,
+        /// Keep the bridge executable.
+        #[arg(long)]
+        keep_binary: bool,
+        /// Print actions without changing anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Confirm the destructive action.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Internal background child entry point.
+    #[command(hide = true)]
+    Run(RunArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+struct StartArgs {
+    /// Stay attached to the terminal instead of detaching.
     #[arg(long)]
-    doctor: bool,
+    foreground: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+struct RunArgs {
+    #[arg(long)]
+    startup_id: String,
+    #[arg(long)]
+    handshake_file: PathBuf,
 }
 
 #[tokio::main]
@@ -104,59 +191,189 @@ async fn main() -> ExitCode {
 
 async fn run() -> Result<(), String> {
     let cli = Cli::parse();
-    let listen = cli
-        .listen
-        .parse()
-        .map_err(|error| format!("invalid listen address {:?}: {error}", cli.listen))?;
+    let paths = ConfigPaths::discover().map_err(|error| error.to_string())?;
+    let overrides = cli.config.overrides();
 
-    let mut omp_args = vec!["--mode".to_owned(), "rpc-ui".to_owned()];
-    if let Some(model) = &cli.model {
-        omp_args.push("--model".to_owned());
-        omp_args.push(model.clone());
+    match cli.command {
+        Some(Command::Setup) => setup(&paths, &overrides).await,
+        Some(Command::Start(args)) => start(&paths, &overrides, args).await,
+        Some(Command::Stop) => stop_command(&paths).await,
+        Some(Command::Restart(args)) => {
+            stop_command(&paths).await?;
+            start(&paths, &overrides, args).await
+        }
+        Some(Command::Status { json }) => status_command(&paths, json),
+        Some(Command::Logs { lines, follow }) => print_logs(&paths, lines, follow)
+            .await
+            .map_err(|error| format!("cannot read logs: {error}")),
+        Some(Command::Doctor) => doctor(&paths, &overrides).await,
+        Some(Command::Config { json, path }) => config_command(&paths, &overrides, json, path),
+        Some(Command::Update) => update(),
+        Some(Command::Uninstall {
+            purge,
+            keep_binary,
+            dry_run,
+            yes,
+        }) => uninstall_command(&paths, purge, keep_binary, dry_run, yes),
+        Some(Command::Run(args)) => run_child(&paths, &overrides, args).await,
+        None if cli.doctor => doctor(&paths, &overrides).await,
+        None => legacy_foreground(&paths, &overrides).await,
+    }
+}
+
+async fn setup(paths: &ConfigPaths, overrides: &ConfigOverrides) -> Result<(), String> {
+    let existing = load_config(paths).map_err(|error| error.to_string())?;
+    let workspace = workspace_for(existing.as_ref(), overrides)?;
+    let saved_bin = existing.as_ref().map(|config| config.omp_bin.as_path());
+
+    println!("OMP Bridge {BRIDGE_VERSION} setup");
+    println!("  Platform:  {}", format_platform());
+    println!("  Workspace: {}", workspace.display());
+    println!("  Config:    {}", paths.config_file.display());
+
+    let result = discover(overrides.omp_bin.as_deref(), saved_bin, VERSION_TIMEOUT).await;
+    print!("{}", format_discovery(&result));
+    let selected = result.selected().cloned().ok_or_else(|| {
+        let detail = result
+            .errors
+            .first()
+            .map(|error| format!("{}: {}", error.code, error.message))
+            .unwrap_or_else(|| "no usable OMP installation found".to_owned());
+        format!("{detail}\nInstall OMP or pass --omp-bin, then run setup again.")
+    })?;
+
+    let startup_timeout = overrides
+        .startup_timeout_secs
+        .or_else(|| existing.as_ref().map(|config| config.startup_timeout_secs))
+        .unwrap_or(DEFAULT_STARTUP_TIMEOUT_SECS);
+    let request_timeout = overrides
+        .request_timeout_secs
+        .or_else(|| existing.as_ref().map(|config| config.request_timeout_secs))
+        .unwrap_or(DEFAULT_REQUEST_TIMEOUT_SECS);
+    let model = overrides
+        .model
+        .clone()
+        .or_else(|| existing.as_ref().and_then(|config| config.model.clone()));
+
+    println!(
+        "  Checking a real OMP RPC startup (up to {}s)...",
+        startup_timeout
+    );
+    let verified = verify_installation(
+        &selected,
+        &workspace,
+        model.as_deref(),
+        Duration::from_secs(startup_timeout),
+        Duration::from_secs(request_timeout),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+
+    let mut stored =
+        existing.unwrap_or_else(|| StoredConfig::new(verified.path.clone(), workspace.clone()));
+    stored.omp_bin = verified.path.clone();
+    stored.omp_version = Some(verified.version.clone());
+    stored.workspace = workspace;
+    stored.apply_overrides(overrides);
+    stored.validate().map_err(|error| error.to_string())?;
+    save_config(paths, &stored).map_err(|error| error.to_string())?;
+
+    println!(
+        "  OMP:       {} ({})",
+        verified.path.display(),
+        verified.version
+    );
+    if let Some(protocol) = verified.protocol_version {
+        println!("  Protocol:  v{protocol}");
+    }
+    if let Some(model) = &verified.model {
+        println!("  Model:     {model}");
+    }
+    println!("  Saved:     {}", paths.config_file.display());
+    println!();
+    println!("Next: omp-bridge start");
+    Ok(())
+}
+
+async fn start(
+    paths: &ConfigPaths,
+    overrides: &ConfigOverrides,
+    args: StartArgs,
+) -> Result<(), String> {
+    let mut stored = load_config(paths)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "omp-bridge is not configured; run `omp-bridge setup` first".to_owned())?;
+    stored.apply_overrides(overrides);
+    stored.validate().map_err(|error| error.to_string())?;
+    let config = stored
+        .to_bridge_config()
+        .map_err(|error| error.to_string())?;
+
+    if args.foreground {
+        return start_foreground(paths, config, &stored).await;
     }
 
-    let config = BridgeConfig {
-        omp_bin: cli.omp_bin,
-        omp_args,
-        workspace: cli.workspace,
-        listen,
-        allowed_origins: cli.allowed_origins,
-        startup_timeout: Duration::from_secs(cli.startup_timeout_secs),
-        request_timeout: Duration::from_secs(cli.request_timeout_secs),
-        pairing_ttl: Duration::from_secs(cli.pairing_ttl_secs),
-        token_ttl: Duration::from_secs(cli.token_ttl_secs),
-        max_frame_bytes: cli.max_frame_bytes,
-        max_reassembled_bytes: cli.max_reassembled_bytes,
-    }
-    .validate()
+    let bridge_exe = std::env::current_exe()
+        .map_err(|error| format!("cannot locate the bridge executable: {error}"))?;
+    let result = start_background(
+        paths,
+        &bridge_exe,
+        overrides,
+        Duration::from_secs(stored.startup_timeout_secs),
+        stored.log_max_bytes,
+    )
+    .await
     .map_err(|error| error.to_string())?;
 
-    if cli.doctor {
-        return doctor(&config).await;
-    }
+    println!("OMP Bridge {BRIDGE_VERSION} started");
+    println!("  PID:       {}", result.pid);
+    println!("  API:       http://{}/api/v1", result.listen);
+    println!("  WebSocket: ws://{}/api/v1/events", result.listen);
+    println!("  Logs:      {}", result.log_path.display());
+    println!();
+    println!(
+        "  Pairing:   {} (single use, expires in {} minutes)",
+        result.pairing_code,
+        stored.pairing_ttl_secs / 60
+    );
+    println!("Pair the app now. The code is not saved anywhere.");
+    Ok(())
+}
 
-    let pairing_minutes = cli.pairing_ttl_secs / 60;
+async fn start_foreground(
+    paths: &ConfigPaths,
+    config: BridgeConfig,
+    stored: &StoredConfig,
+) -> Result<(), String> {
+    paths.ensure().map_err(|error| error.to_string())?;
+    if let Some(pid) = running_pid(paths) {
+        return Err(format!("omp-bridge is already running with PID {pid}"));
+    }
+    let _lock = RuntimeLock::acquire(&paths.lock_file)
+        .map_err(|error| format!("cannot acquire the runtime lock: {error}"))?;
+
+    let pairing_minutes = stored.pairing_ttl_secs / 60;
     let bridge = RunningBridge::start(config)
         .await
         .map_err(|error| format!("cannot bind loopback listener: {error}"))?;
-    let status = bridge.engine.status();
+    let engine_status = bridge.engine.status();
 
-    println!("OMP Bridge {}", omp_bridge::api_types::BRIDGE_VERSION);
+    println!("OMP Bridge {BRIDGE_VERSION}");
     println!("  API:       http://{}/api/v1", bridge.addr);
     println!("  WebSocket: ws://{}/api/v1/events", bridge.addr);
     println!("  OMP:       {}", bridge.launch_summary);
-    print_engine_status(&status);
-    if !status.ready {
+    print_engine_status(&engine_status);
+    if !engine_status.ready {
         eprintln!(
             "omp-bridge: engine is not ready: {}",
-            status
+            engine_status
                 .error
                 .as_ref()
                 .map(|error| format!("{}: {}", error.code, error.message))
                 .unwrap_or_else(|| "unknown startup failure".to_owned())
         );
         bridge.shutdown().await;
-        return Err("OMP did not become ready; fix the configuration and retry".to_owned());
+        return Err("OMP did not become ready; run `omp-bridge doctor`".to_owned());
     }
 
     println!(
@@ -171,6 +388,296 @@ async fn run() -> Result<(), String> {
     println!("Stopping bridge...");
     bridge.shutdown().await;
     Ok(())
+}
+
+async fn stop_command(paths: &ConfigPaths) -> Result<(), String> {
+    match stop(paths).await {
+        Ok(result) => {
+            if result.stale {
+                println!(
+                    "Removed stale runtime state for PID {}; the process was already gone.",
+                    result.pid
+                );
+            } else if result.forced {
+                println!("Stopped bridge PID {} after a forced shutdown.", result.pid);
+            } else {
+                println!("Stopped bridge PID {}.", result.pid);
+            }
+            Ok(())
+        }
+        Err(ProcessError::NotRunning) => {
+            println!("omp-bridge is not running.");
+            Ok(())
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn status_command(paths: &ConfigPaths, json: bool) -> Result<(), String> {
+    let configured = load_config(paths)
+        .map_err(|error| error.to_string())?
+        .is_some();
+    let report = status(paths, configured);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .map_err(|error| format!("cannot encode status: {error}"))?
+        );
+    } else {
+        print!("{}", format_status(&report));
+    }
+    Ok(())
+}
+
+async fn doctor(paths: &ConfigPaths, overrides: &ConfigOverrides) -> Result<(), String> {
+    println!("omp-bridge doctor");
+    println!("  Bridge:    {BRIDGE_VERSION}");
+    println!("  Platform:  {}", format_platform());
+    println!("  Config:    {}", paths.config_file.display());
+    println!("  Runtime:   {}", paths.runtime_dir.display());
+    println!("  Logs:      {}", paths.log_file.display());
+
+    let existing = load_config(paths).map_err(|error| error.to_string())?;
+    let mut stored = existing.clone().unwrap_or_else(|| {
+        StoredConfig::new(
+            overrides
+                .omp_bin
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("omp")),
+            overrides
+                .workspace
+                .clone()
+                .unwrap_or_else(|| PathBuf::from(".")),
+        )
+    });
+    stored.apply_overrides(overrides);
+    stored.validate().map_err(|error| error.to_string())?;
+
+    let result = discover(
+        overrides.omp_bin.as_deref(),
+        Some(&stored.omp_bin),
+        VERSION_TIMEOUT,
+    )
+    .await;
+    print!("{}", format_discovery(&result));
+    let Some(selected) = result.selected().cloned() else {
+        return Err("no usable OMP installation found".to_owned());
+    };
+
+    let workspace = workspace_for(Some(&stored), overrides)?;
+    println!("  Workspace: {}", workspace.display());
+    println!(
+        "  Checking a real OMP RPC startup (up to {}s)...",
+        stored.startup_timeout_secs
+    );
+    let verified = verify_installation(
+        &selected,
+        &workspace,
+        stored.model.as_deref(),
+        Duration::from_secs(stored.startup_timeout_secs),
+        Duration::from_secs(stored.request_timeout_secs),
+    )
+    .await
+    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    println!(
+        "  RPC:       ready, protocol {}, model {}",
+        verified
+            .protocol_version
+            .map(|version| format!("v{version}"))
+            .unwrap_or_else(|| "unknown".to_owned()),
+        verified.model.as_deref().unwrap_or("not reported")
+    );
+
+    let report = status(paths, existing.is_some());
+    println!("  Service:   {}", report.phase);
+    if let Some(pid) = report.pid {
+        println!("  PID:       {pid}");
+    }
+    println!("doctor: configuration and a real RPC startup look usable.");
+    Ok(())
+}
+
+fn config_command(
+    paths: &ConfigPaths,
+    overrides: &ConfigOverrides,
+    json: bool,
+    path_only: bool,
+) -> Result<(), String> {
+    if path_only {
+        println!("{}", paths.config_file.display());
+        return Ok(());
+    }
+    let mut stored = load_config(paths).map_err(|error| error.to_string())?;
+    match &mut stored {
+        Some(config) => config.apply_overrides(overrides),
+        None => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "configured": false,
+                        "configFile": paths.config_file,
+                        "runtimeDir": paths.runtime_dir,
+                        "logFile": paths.log_file,
+                    })
+                );
+            } else {
+                println!("Configuration: not set up");
+                println!("  Config:  {}", paths.config_file.display());
+                println!("  Runtime: {}", paths.runtime_dir.display());
+                println!("  Logs:    {}", paths.log_file.display());
+                println!("Run `omp-bridge setup` to detect OMP and save configuration.");
+            }
+            return Ok(());
+        }
+    }
+
+    let stored = stored.expect("configured");
+    stored.validate().map_err(|error| error.to_string())?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "configured": true,
+                "configFile": paths.config_file,
+                "runtimeDir": paths.runtime_dir,
+                "logFile": paths.log_file,
+                "config": stored,
+            }))
+            .map_err(|error| format!("cannot encode configuration: {error}"))?
+        );
+    } else {
+        println!("Configuration: {}", paths.config_file.display());
+        println!("  OMP:        {}", stored.omp_bin.display());
+        if let Some(version) = &stored.omp_version {
+            println!("  OMP version:{version}");
+        }
+        println!("  Workspace:  {}", stored.workspace.display());
+        println!("  Listen:     {}", stored.listen);
+        println!("  Origins:    {}", stored.allowed_origins.join(", "));
+        if let Some(model) = &stored.model {
+            println!("  Model:      {model}");
+        }
+        println!(
+            "  Timeouts:   startup {}s, request {}s, pairing {}s, token {}s",
+            stored.startup_timeout_secs,
+            stored.request_timeout_secs,
+            stored.pairing_ttl_secs,
+            stored.token_ttl_secs
+        );
+        println!(
+            "  Limits:     {} byte frames, {} byte reassembled, {} byte logs",
+            stored.max_frame_bytes, stored.max_reassembled_bytes, stored.log_max_bytes
+        );
+        println!("  Runtime:    {}", paths.runtime_dir.display());
+        println!("  Logs:       {}", paths.log_file.display());
+    }
+    Ok(())
+}
+
+fn update() -> Result<(), String> {
+    println!("OMP Bridge {BRIDGE_VERSION}");
+    println!("Self-update is intentionally not implemented.");
+    println!("To upgrade, download the release asset for your platform and verify its SHA-256:");
+    println!("  https://github.com/xeriomy/omp-mobile/releases");
+    println!("Then stop the bridge, replace the binary, and run `omp-bridge doctor`.");
+    Ok(())
+}
+
+fn uninstall_command(
+    paths: &ConfigPaths,
+    purge: bool,
+    keep_binary: bool,
+    dry_run: bool,
+    yes: bool,
+) -> Result<(), String> {
+    if !yes && !dry_run {
+        return Err(
+            "refusing to uninstall without --yes; run with --dry-run to inspect the changes"
+                .to_owned(),
+        );
+    }
+    uninstall(paths, purge, keep_binary, dry_run).map_err(|error| error.to_string())?;
+    if !dry_run {
+        println!("Uninstall complete.");
+    }
+    Ok(())
+}
+
+async fn run_child(
+    paths: &ConfigPaths,
+    overrides: &ConfigOverrides,
+    args: RunArgs,
+) -> Result<(), String> {
+    let mut stored = load_config(paths)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "configuration disappeared before startup".to_owned())?;
+    stored.apply_overrides(overrides);
+    stored.validate().map_err(|error| error.to_string())?;
+    let config = stored
+        .to_bridge_config()
+        .map_err(|error| error.to_string())?;
+    run_background_child(paths, config, &args.startup_id, &args.handshake_file)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn legacy_foreground(paths: &ConfigPaths, overrides: &ConfigOverrides) -> Result<(), String> {
+    let stored = match load_config(paths).map_err(|error| error.to_string())? {
+        Some(mut stored) => {
+            stored.apply_overrides(overrides);
+            stored
+        }
+        None => {
+            let mut stored = StoredConfig::new(
+                overrides
+                    .omp_bin
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from("omp")),
+                overrides
+                    .workspace
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from(".")),
+            );
+            stored.apply_overrides(overrides);
+            stored
+        }
+    };
+    stored.validate().map_err(|error| error.to_string())?;
+    let config = stored
+        .to_bridge_config()
+        .map_err(|error| error.to_string())?;
+    start_foreground(paths, config, &stored).await
+}
+
+fn workspace_for(
+    existing: Option<&StoredConfig>,
+    overrides: &ConfigOverrides,
+) -> Result<PathBuf, String> {
+    let workspace = overrides
+        .workspace
+        .clone()
+        .or_else(|| existing.map(|config| config.workspace.clone()))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let canonical = workspace
+        .canonicalize()
+        .map_err(|error| format!("cannot use workspace {}: {error}", workspace.display()))?;
+    if !canonical.is_dir() {
+        return Err(format!(
+            "workspace {} is not a directory",
+            canonical.display()
+        ));
+    }
+    Ok(canonical)
+}
+
+fn format_platform() -> String {
+    let platform = platform_info();
+    format!(
+        "{} {} / {} / {}",
+        platform.os, platform.arch, platform.libc, platform.environment
+    )
 }
 
 fn print_engine_status(status: &EngineStatus) {
@@ -190,33 +697,4 @@ fn print_engine_status(status: &EngineStatus) {
             println!("  Engine:    ready, protocol {protocol}, model {model}");
         }
     }
-}
-
-async fn doctor(config: &BridgeConfig) -> Result<(), String> {
-    println!("omp-bridge doctor");
-    println!("  OMP binary: {}", config.omp_bin.display());
-    println!("  Workspace:  {}", config.workspace.display());
-    println!("  Listen:     {}", config.listen);
-    println!("  Origins:    {}", config.allowed_origins.join(", "));
-    println!(
-        "  Limits:     {} byte frames, {} byte reassembled",
-        config.max_frame_bytes, config.max_reassembled_bytes
-    );
-
-    let output = Command::new(&config.omp_bin)
-        .arg("--version")
-        .output()
-        .await
-        .map_err(|error| format!("cannot execute OMP --version: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "OMP --version failed with status {}: {}",
-            output.status,
-            redact_error(&String::from_utf8_lossy(&output.stderr))
-        ));
-    }
-    let version = String::from_utf8_lossy(&output.stdout);
-    println!("  Version:    {}", version.trim());
-    println!("doctor: configuration looks usable; no OMP process was started.");
-    Ok(())
 }

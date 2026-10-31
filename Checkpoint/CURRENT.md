@@ -1,18 +1,18 @@
 # Current Checkpoint
 
-> Phase 1 loopback bridge implemented and tested against real OMP `18.13.3`; bridge-connected mobile client implemented and browser-independent client behavior exercised against the live bridge. Android device loopback remains unverified. Measured on 2026-10-30.
+> Phase 1.5 bridge installer, OMP discovery, persistent configuration, background lifecycle, and mobile loopback auto-detection are implemented and tested on the host against real OMP `18.14.0`. Android device verification of the new UI, GitHub Actions release execution, and native Termux support remain unverified. Measured on 2026-10-31.
 
 ## Snapshot
 
 - **Project:** OMP Client
-- **Milestone:** Phase 1 — authenticated loopback bridge and connection diagnostics
-- **Status:** Bridge **PASS** on host with real OMP. Rust/frontend automated checks **PASS**. Live HTTP/WS/revoke through the mobile client module **PASS**. Android device pairing, status, and live WebSocket event **PASS** (screenshot evidence; `adb logcat` not captured).
+- **Milestone:** Phase 1.5 — bridge install, discovery, lifecycle, and mobile auto-detection
+- **Status:** Host lifecycle **PASS** with real OMP. Rust/frontend/installer automated checks **PASS**. Phase 1.5 mobile UI is code/test verified but not installed on a device. Release workflow not executed.
 - **Branch:** `Rust-Bridge-and-Android-Loopback` (placeholder branch from `main`)
-- **Base commit:** `663aed1` (`docs: record merged main CSP build run 41113969884`)
-- **Code commits:** `625a823` (bridge and shared RPC crate), `88c886e` (mobile client).
-- **Pull request:** [#3](https://github.com/xeriomy/omp-mobile/pull/3), open against `main`; CI result pending.
-- **Working tree:** clean after the docs commit that records these SHAs.
-- **Last updated:** 2026-10-30
+- **Base commit:** `92acf28` (`docs: record verified Android pairing and live bridge state`)
+- **Code commit:** pending in this working tree; recorded in the follow-up checkpoint commit.
+- **Pull request:** [#3](https://github.com/xeriomy/omp-mobile/pull/3), open against `main`.
+- **Working tree:** Phase 1.5 changes uncommitted at the time of writing.
+- **Last updated:** 2026-10-31
 
 ## Environment (measured)
 
@@ -21,43 +21,61 @@
 | Local host | Ubuntu 26.04.1 LTS, aarch64, PRoot distro on Android 15 (`arm64-v8a`, model `23021RAAEG`) |
 | Rust | `rustc 1.91.1`, `cargo 1.91.1` |
 | Node / npm | Node `v26.13.0`, npm `11.20.0` |
-| OMP | `omp/18.13.3`, `/tmp/opencode/omp-bin/omp-linux-arm64` |
-| OMP SHA-256 | `981f08df6c6344356b31aa696fdd810b8b5fa8c8851ba926d3940e793d47cc3a` |
+| OMP | `omp/18.14.0`, `/root/.local/bin/omp` |
+| Pinned tested baseline | OMP `18.13.3`; `18.x` at or above the baseline is accepted |
 | Android `adb` | unavailable: bundled `platform-tools/adb` is x86_64 ELF on an aarch64 host; no Termux `adb` in PATH |
 | Browser automation | unavailable: OpenChamber browser control needs the desktop app; Playwright is not installed |
 
 ## Implemented
 
-### Bridge (`apps/bridge`)
+### Persistent configuration (`config_store.rs`)
 
-- Axum 0.8 + Tokio loopback HTTP/WebSocket service.
-- Validated config rejects non-loopback bind, wildcard/invalid origins, missing workspace, oversized limits, and zero timeouts.
-- `omp-bridge doctor` validates config and runs `omp --version` without starting OMP.
-- One real `omp --mode rpc-ui` child process, explicit argument array, selected working directory, inherited environment, own process group.
-- Concurrent stdout/stderr drain. stdout is protocol-only; stderr is bounded and redacted.
-- Ready-frame validation, advertised physical-frame limit, v2 negotiation, id-correlated `get_state`.
-- `ready: true` only after real ready + negotiation + successful state.
-- Startup failures are classified: `OMP_NOT_FOUND`, `OMP_START_FAILED`, `OMP_MISSING_MODEL`, `OMP_START_TIMEOUT`, `RPC_PROTOCOL_ERROR`, `RPC_UNSUPPORTED_PROTOCOL`, `RPC_NEGOTIATION_FAILED`, `RPC_STATE_FAILED`, `OMP_EXITED`.
-- Pairing: 10-character code from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, single use, 10-minute TTL, five wrong attempts, hashed at rest.
-- Tokens: 32 random bytes, hashed at rest, 24-hour TTL, revocable, memory-only, printed only once to the pairing client.
-- Exact Host and Origin guard; narrow CORS; 16 KiB request-body limit; 5-second WS auth deadline; no event before auth.
-- Versioned WebSocket envelopes; bounded broadcast; lag emits `bridge.resync`; WS send timeout.
-- Shutdown closes stdin, waits 3 seconds, then SIGKILLs the child process group; tasks joined and pending requests cleared.
+- Config home defaults to `$XDG_CONFIG_HOME/omp-bridge` or `$HOME/.config/omp-bridge`; override `OMP_BRIDGE_HOME`.
+- Runtime defaults to `$XDG_RUNTIME_DIR/omp-bridge`, else `<config-home>/run`; override `OMP_BRIDGE_RUNTIME_DIR`.
+- Logs default to `<config-home>/logs/bridge.log`; override `OMP_BRIDGE_LOG_DIR`.
+- Directories use mode `0700`; config, runtime state, PID, and startup handshake use `0600`.
+- Atomic write through a temporary file plus rename.
+- Schema version `1`; version `0` migrates by filling defaults; a future version is rejected.
+- Stores no bearer tokens, pairing codes, provider keys, prompts, session content, or file content.
+- Precedence: explicit flag, environment, saved config, built-in default. One-run overrides are not persisted by `start`, `restart`, or `doctor`.
 
-### Shared RPC crate (`crates/omp-rpc`)
+### OMP discovery (`discovery.rs`)
 
-Moved the Phase 0 framing/correlation code out of `spike/rpc-harness/src/lib.rs` so the bridge and harness share the same bounded JSONL parser and v2 chunk assembler. The harness remains a workspace member.
+- Candidate order: `--omp-bin`, `OMP_BRIDGE_OMP_BIN`, saved `ompBin`, every `omp` on `PATH`, documented user-writable locations, manual path.
+- Documented locations include `~/.local/bin`, `~/.omp/bin`, `~/bin`, `~/.local/share/omp/bin`, `$PREFIX/bin`, `/usr/local/bin`, and `/usr/bin`.
+- Never walks a filesystem tree and never invokes a shell.
+- Duplicate candidates are removed by canonical path; the first valid candidate wins.
+- Validation: regular executable file, bounded `omp --version`, `18.x` at or above `18.13.3`, then a real `ready`/protocol negotiation/`get_state` startup.
+- `setup` and `doctor` print classified failures without provider keys, prompts, or file contents.
 
-### Mobile (`apps/mobile`)
+### Background lifecycle (`process_manager.rs`, `main.rs`)
 
-- Replaced the smoke screen with a real pairing/connection/diagnostics screen.
-- Loopback-only URL validation (`127.0.0.1`, `localhost`, `[::1]`), no path/credentials/query.
-- Pairing code entry; token and token ID kept in memory only; expiry displayed; revoke/forget.
-- Real `/healthz`, `/api/v1/pair`, `/api/v1/status`, `/api/v1/tokens/revoke`, and WebSocket first-message auth.
-- Displays engine state, model, protocol, session, message count, streaming/settled flags, spurious-free error states, last 20 live events, and explicit paused/stale state.
-- Manual reconnect and 5-second status polling; no fake model/session data and no prompt action.
-- CSP extended with loopback HTTP/WS sources.
-- Added Node tests for URL normalization and rejection rules.
+- Commands: `setup`, `start`, `start --foreground`, `stop`, `restart`, `status [--json]`, `logs [--lines N] [--follow]`, `doctor`, `config [--json] [--path]`, `update`, `uninstall [--purge] [--keep-binary] [--dry-run] [--yes]`.
+- Hidden `run` child is internal to background start.
+- `start` spawns the child with `setsid`, stdin closed, stdout/stderr redirected to a private log, and a random startup ID.
+- The child holds an exclusive `flock`; PID files record the executable path and `/proc/<pid>/stat` start time.
+- Status and stop require the recorded PID identity to match; stale or reused PIDs are not signalled.
+- The pairing code is delivered through a private `0600` handshake file, printed once, and the handshake is deleted. It is not written to config or logs.
+- `stop` sends `SIGTERM`, waits up to 10 seconds, then `SIGKILL`. An orphaned OMP child recorded in runtime state is cleaned up.
+- Logs rotate at `logMaxBytes` (default 1 MiB) on the next start.
+- `update` prints verified upgrade instructions only; the installer performs upgrades.
+- `uninstall` refuses while running, requires `--yes` unless `--dry-run`, keeps config unless `--purge`, and can keep the binary.
+
+### API and mobile
+
+- Added unauthenticated `GET /api/v1/capabilities` returning only `product`, `apiVersion`, `bridgeVersion`, `eventVersion`, and feature names.
+- HTTP test asserts the response excludes token, pairing code, OMP path, and workspace fields.
+- Mobile client adds `fetchCapabilities`, `assertBridgeCapabilities`, `probeBridge`, `discoverBridge`, saved non-secret URL helpers, auto-detection state, manual loopback URL fallback, and a clear-saved-URL action.
+- Detection probes a saved URL first, then `127.0.0.1` and `localhost` on ports `8765`–`8767`. It never scans the LAN.
+- Pairing remains explicit; the token stays in memory and only the non-secret bridge URL is persisted.
+
+### Installer and release
+
+- `scripts/install-bridge.sh` downloads `omp-bridge-<target>` and `.sha256` from GitHub Releases, verifies SHA-256 before replacement, installs to `~/.local/bin` by default, and never uses `sudo`.
+- Rejects root unless `OMP_BRIDGE_ALLOW_ROOT=1`, rejects native Termux/musl/unknown architectures, and refuses to replace a running bridge.
+- `OMP_BRIDGE_RELEASE_BASE_URL` supports local `file://` installer tests.
+- `.github/workflows/bridge-release.yml` builds `aarch64-unknown-linux-gnu` and `x86_64-unknown-linux-gnu` with `--locked`, strips them, publishes SHA-256 files, and checks that a `v*` tag matches the workspace version.
+- Android CI now runs `shellcheck`, `bash -n`, and the installer tests.
 
 ## Evidence
 
@@ -75,105 +93,113 @@ Results:
 
 - `cargo fmt`: exit 0.
 - `cargo clippy -D warnings`: exit 0.
-- `cargo test --workspace`: **54 passed, 0 failed, 1 ignored**.
-  - omp-bridge unit: 23 passed.
+- `cargo test --workspace`: **78 passed, 0 failed, 1 ignored**.
+  - omp-bridge unit: 40 passed.
+  - CLI lifecycle integration: 6 passed.
   - engine lifecycle integration: 11 passed.
-  - HTTP/WebSocket integration: 9 passed.
+  - HTTP/WebSocket integration: 10 passed.
   - omp-rpc unit: 11 passed.
-  - harness unit: 0 tests.
-  - doc tests: 0 tests.
+  - harness and doc tests: 0 tests.
   - `real_omp`: 1 ignored by default.
 
-Engine lifecycle tests cover real-ready ordering, v1 fallback, malformed frame tolerance, missing binary, missing model, startup timeout, unsupported versions, rejected negotiation/state, oversized frames, real stdout event delivery, and child cleanup.
+The CLI lifecycle tests use the labeled fake OMP fixture and cover setup, config shape/permissions, background start, status JSON, second-start rejection, logs, stop, uninstall dry-run, `--yes` refusal, doctor RPC, `config --path`/`--json`, and non-loopback rejection.
 
-HTTP/WS tests cover minimal health, single-use pairing, missing/revoked/expired auth, pairing rate limit, safe state projection, exact Origin/Host rejection, first-message WS auth, bad token/garbage close `4401`, disallowed WS Origin, live event delivery, and token expiry metadata.
+HTTP tests additionally cover the capabilities identity document and assert it does not leak token, pairing, path, or workspace data.
 
-### Real OMP end-to-end
+### Real OMP lifecycle (host)
+
+Fresh run with an isolated config home:
+
+```sh
+export OMP_BRIDGE_HOME=/tmp/opencode/checkpoint-home
+omp-bridge setup --workspace /tmp/opencode/real-omp-workspace
+omp-bridge start
+omp-bridge status
+curl -fsS http://127.0.0.1:8765/api/v1/capabilities
+omp-bridge logs --lines 6
+omp-bridge stop
+```
+
+Key output (pairing code intentionally omitted):
+
+```text
+OMP discovery: Found
+  /root/.local/bin/omp [PATH] Valid { version: "18.14.0" }
+  selected: /root/.local/bin/omp (18.14.0, source PATH)
+  OMP:       /root/.local/bin/omp (18.14.0)
+  Protocol:  v2
+  Model:     opencode-zen/beam-free
+  Saved:     /tmp/opencode/checkpoint-home/config.json
+
+OMP Bridge status: engine ready
+  Listen:     127.0.0.1:8765
+  OMP version:18.14.0
+  Engine:     ready (ready)
+  Model:      opencode-zen/beam-free
+  Workspace:  /tmp/opencode/real-omp-workspace
+  Platform:   linux aarch64 / glibc / proot
+
+{"product":"omp-bridge","apiVersion":"v1","bridgeVersion":"0.1.0","eventVersion":1,"features":["pairing","status","events","token-revoke"]}
+
+2026-10-31T01:17:31Z INFO  starting bridge pid 8272 on 127.0.0.1:8765
+2026-10-31T01:17:31Z INFO  OMP /root/.local/bin/omp (cwd /tmp/opencode/real-omp-workspace)
+2026-10-31T01:18:02Z INFO  pairing code delivered through the private startup handshake
+
+Stopped bridge PID 8272.
+OMP Bridge status: stopped
+```
+
+Permission and secret checks:
+
+```text
+700 /tmp/opencode/checkpoint-home
+600 /tmp/opencode/checkpoint-home/config.json
+700 /tmp/opencode/checkpoint-home/logs
+600 /tmp/opencode/checkpoint-home/logs/bridge.log
+600 /tmp/opencode/checkpoint-home/run/state.json
+grep <pairing code>: 0 matches in config.json and bridge.log
+```
+
+The runtime lock file is mode `0644`; it contains no secrets.
+
+### Real OMP end-to-end test
 
 Command:
 
 ```sh
-OMP_BIN=/tmp/opencode/omp-bin/omp-linux-arm64 \
-OMP_MODEL=anthropic/claude-sonnet-4-5 \
+OMP_BIN=/root/.local/bin/omp \
 OMP_WORKSPACE=/tmp/opencode/real-omp-workspace \
 cargo test -p omp-bridge --test real_omp -- --ignored --nocapture
 ```
 
-Result: **PASS** in 5.89 s.
+Result: **PASS** in 18.01 s.
 
 ```text
-real OMP ready: anthropic/claude-sonnet-4-5
+real OMP ready: opencode-zen/beam-free
 test real_omp_boots_negotiates_and_serves_authenticated_status ... ok
 ```
 
-This test starts the real OMP child through `RunningBridge`, asserts engine `ready`, protocol v2, a real model in `get_state`, authenticates HTTP with a paired token, fetches `/api/v1/status`, checks that `systemPrompt` and `sessionFile` are absent, and shuts down. No prompt was sent.
+The test starts real OMP through `RunningBridge`, asserts engine ready, protocol v2, a real model, authenticated HTTP status, absence of `systemPrompt`/`sessionFile`, and clean shutdown. No prompt was sent.
 
-CLI evidence:
+### Installer, shell, and manifest checks
 
-```text
-$ cargo run -q -p omp-bridge -- --omp-bin /tmp/opencode/omp-bin/omp-linux-arm64 \
-    --workspace /tmp/opencode/real-omp-workspace --doctor
-omp-bridge doctor
-  OMP binary: /tmp/opencode/omp-bin/omp-linux-arm64
-  Workspace:  /tmp/opencode/real-omp-workspace
-  Listen:     127.0.0.1:8765
-  Origins:    http://tauri.localhost, https://tauri.localhost, tauri://localhost, http://localhost:1420
-  Limits:     1048576 byte frames, 67108864 byte reassembled
-  Version:    omp/18.13.3
-doctor: configuration looks usable; no OMP process was started.
+```sh
+shellcheck scripts/*.sh
+sh scripts/test-install-bridge.sh
+node scripts/validate-manifest.mjs
 ```
 
-Non-loopback rejection:
+Results:
 
-```text
-$ cargo run -q -p omp-bridge -- --listen 0.0.0.0:8765 ...
-omp-bridge: refusing non-loopback listen address 0.0.0.0:8765; remote mode is not implemented
-exit=1
-```
-
-Live bridge startup output (single-use pairing code intentionally not recorded):
-
-```text
-OMP Bridge 0.1.0
-  API:       http://127.0.0.1:8765/api/v1
-  WebSocket: ws://127.0.0.1:8765/api/v1/events
-  OMP:       /tmp/opencode/omp-bin/omp-linux-arm64 --mode rpc-ui --model anthropic/claude-sonnet-4-5 (cwd /tmp/opencode/real-omp-workspace)
-  Engine:    ready, protocol v2, model anthropic/claude-sonnet-4-5
-  Pairing:   <single-use code> (single use, expires in 10 minutes)
-Press Ctrl+C to stop the bridge and its OMP child process.
-```
-
-### Mobile client behavior against the live bridge
-
-The built Svelte page could not be driven in a browser here: OpenChamber's browser panel cannot control pages in this environment and Playwright is not installed. Instead, the committed TypeScript client module was imported with Node 26 and exercised against the live real-OMP bridge:
-
-```json
-{
-  "api": "v1",
-  "engine": "ready",
-  "ready": true,
-  "protocol": 2,
-  "model": { "provider": "anthropic", "id": "claude-sonnet-4-5" },
-  "tokenExpires": true
-}
-```
-
-```json
-{ "event": "bridge.status", "version": 1, "sequence": 6, "engine": "ready" }
-```
-
-```text
-revoked token rejected: 401
-```
-
-This proves the client's URL normalization, health check, pairing request, bearer status request, WebSocket first-message auth, event envelope parsing, and revoke path against the real bridge. It does **not** prove DOM rendering, CSP behavior, Android WebView fetch/WS, or touch interaction.
+- `shellcheck`: exit 0.
+- Installer tests: `installer tests passed (aarch64-unknown-linux-gnu)`. Covers target detection, successful local install, root refusal, bad-checksum refusal without replacing the existing binary, and running-bridge refusal.
+- Manifest: `PACK_MANIFEST.json OK: 68 files present, no prompt-pack references.`
 
 ### Frontend checks
 
 Commands run from `apps/mobile`:
 
 ```sh
-npm ci --no-audit --no-fund
 npm run format:check
 npm run test
 npm run check
@@ -182,73 +208,42 @@ npm run build
 
 Results:
 
-- `format:check`: PASS, all files match Prettier.
-- `test`: PASS, 3 tests.
+- `format:check`: PASS.
+- `test`: PASS, 6 tests.
 - `check`: PASS, 0 errors, 0 warnings.
-- `build`: PASS, adapter-static wrote `build/`.
+- `build`: PASS.
 
-Repository metadata:
-
-```sh
-node scripts/validate-manifest.mjs
-```
-
-Result: `PASS: 60 files present, no prompt-pack references.`
-
-CI workflow now runs frontend format/test/check/build and root-workspace Rust fmt/clippy/test before the Android build. Run `41130961933` failed because the new root workspace implicitly claimed `apps/mobile/src-tauri`, whose own locked metadata check then refused to run. Commit `414c640` excludes that crate; the next run passed.
-
-### Android APK build (CI)
-
-Run [`41131544289`](https://github.com/xeriomy/omp-mobile/actions/runs/41131544289) on `414c640`: **PASS** in 5m03s. The workflow ran the Rust workspace checks, frontend checks, Android debug build, `aapt2` badging assertions, and APK content checks.
-
-Downloaded artifact:
-
-| Field | Value |
-|---|---|
-| Artifact | `omp-client-android-debug-fdb21e6a277c48403835492543deb9428c9c7e4c` |
-| APK | `app-universal-debug.apk` |
-| Size | `121155701` bytes |
-| SHA-256 | `3f81e99dc05a0a0221478ed58cc7eb6eb96de6867cb1ea255b358f1404e65e61` |
-| Native lib | `lib/arm64-v8a/libomp_client_lib.so` present |
-| Package / version | `com.ompclient.mobile` / `0.1.0` |
-| Embedded CSP | `connect-src` includes loopback HTTP/WS sources from ADR-013 |
-
-This proves the bridge-connected client compiles, packages, and carries the loopback CSP.
-
-### Android device run (2026-10-30)
-
-The user installed that APK on the target Android 15 arm64 device. The bridge ran in the Ubuntu/PRoot environment on the same phone, listening on `127.0.0.1:8765` with real OMP `18.13.3` and model `anthropic/claude-sonnet-4-5`. The user supplied a screenshot showing:
-
-- app header `Connected` and connection card `Live`;
-- bridge `127.0.0.1:8765`, API `v1`, bridge version `0.1.0`, event stream `/api/v1/events`, non-empty token ID;
-- engine `Ready`, model `anthropic/claude-sonnet-4-5`, protocol `v2`, session ID `01a18eec-b981-769d-9461-1f5e7dc01ca6`, 0 messages, not streaming, settled, thinking `high`;
-- one live event: `#6 bridge.status`.
-
-This is the first device evidence that Android WebView accepts the loopback HTTP/WebSocket transport, the CSP allows those sources, Android permits the cleartext loopback connection, and the bridge accepts the app's exact origin. Not captured: `adb logcat`, device-initiated revoke, app restart, lifecycle, and keyboard behavior.
+Node tests cover URL normalization/rejection, stable error codes, capability validation, loopback-only discovery, and refusal of non-bridge listeners.
 
 ## Security review
 
 - Listener is loopback-only; `0.0.0.0` fails before OMP starts.
 - Pairing codes and tokens are never logged or placed in URLs. Only SHA-256 hashes are retained. Tokens are memory-only in the app.
-- Functional HTTP endpoints require bearer auth. WebSocket rejects unauth/garbage/late clients with `4401`/`4408` and sends no event first.
+- The pairing code appears only in `start` output; config and logs contain no copy.
+- Config, state, PID, and handshake files are private; directories are `0700`; writes are atomic.
+- Status and stop verify executable path plus process start time before signalling; stale state is removed.
+- Functional HTTP endpoints require bearer auth. WebSocket rejects unauth/garbage/late clients and sends no event first.
 - Host must be `127.0.0.1`, `localhost`, or `[::1]` with the configured port. Non-empty Origin must exactly match the allowlist; CORS is never wildcard.
-- `get_state` is projected to a safe summary; prompts, session files, provider URLs, and credentials are excluded from status.
-- Child stdout/stderr are drained independently; stderr is bounded, redacted, and only surfaced after startup failure classification.
-- Request and frame sizes are bounded; broadcast is bounded; lag resynchronizes.
-- OMP runs in its own process group and is killed as a group only after graceful shutdown times out.
-- No provider credentials, prompts, or tokens were committed. The real-OMP test used the existing host configuration and did not send a model prompt.
+- Capabilities is unauthenticated by design but exposes only product/version/feature metadata.
+- Discovery is bounded and never uses a shell; OMP arguments are passed as an explicit array.
+- Installer verifies SHA-256, never uses `sudo`, rejects root by default, and refuses to replace a running bridge.
+- `get_state` is projected to a safe summary; prompts, session files, provider URLs, and credentials are excluded.
+- Child stdout/stderr are drained independently; stderr is bounded and redacted.
+- No provider credentials, prompts, or tokens were committed.
 
 ## Known issues and blockers
 
-- **Device evidence is screenshot-only.** Pairing, status, and one WebSocket event are proven on the Android 15 device. `adb logcat`, revoke from the app, restart, lifecycle, and keyboard behavior are not captured. No working `adb` on this host.
-- **No automated DOM/CSP test.** OpenChamber browser control and Playwright were unavailable; the device screenshot is the only runtime UI evidence.
-- **No OpenAPI contract package.** The exact v1 subset is documented in `Specs/BRIDGE_API_SPEC.md`; `packages/contracts` and generated-type drift checks do not exist.
+- **Phase 1.5 UI not device-verified.** The auto-detection screen, manual fallback, saved-URL behavior, and capabilities validation pass code tests only. The previous Phase 1 APK evidence predates this UI.
+- **No working `adb`.** On-device install, `adb logcat`, restart, lifecycle, and keyboard behavior cannot be captured here.
+- **Release workflow not executed.** `bridge-release.yml` is unrun on GitHub Actions; no release assets exist yet.
+- **Native Termux unsupported.** Release binaries are glibc-only; the installer rejects Termux/bionic, musl, and unknown architectures. Termux support needs a real build and runtime test.
+- **Installer download path unproven.** Local `file://` tests pass; the GitHub Releases URL path has not been exercised.
+- **No OpenAPI contract package.** The v1 subset is documented in `Specs/BRIDGE_API_SPEC.md`; `packages/contracts` and generated-type drift checks do not exist.
 - **No prompt/control API.** Chat, abort, sessions, model selection, files, Git, and extension UI remain future phases.
-- **No Android secure storage.** Token is memory-only, so app restart requires pairing again.
+- **No Android secure storage.** The token is memory-only, so app restart requires pairing again.
 - **No automatic WebSocket retry.** The UI offers manual reconnect and shows a stale/paused state.
 - **OMP raw events are not normalized.** `omp.event` carries `rawType` and the raw frame; stable typed UI events are future work.
-- **Termux deployment unverified.** The bridge ran in this Ubuntu/PRoot environment, not a plain Termux toolchain.
 
 ## Next best action
 
-Implement the Phase 3 prompt path: `POST /api/v1/prompt` (or equivalent) with request-ID correlation, streaming `omp.event` projection, `prompt_result` completion, abort, and explicit approval passthrough. Keep the OpenAPI/event contract package next so the new actions land with generated types and a drift check. Capture `adb logcat` and app restart behavior when device tooling becomes available.
+Install the Phase 1.5 APK on the Android 15 device and verify auto-detection, capabilities validation, manual URL fallback, and pairing against a real background bridge. Then run the bridge release workflow for `v0.1.0`, verify the published SHA-256 assets and installer over HTTPS, and add the OpenAPI/event contract package with generated types and a drift check before starting the Phase 3 prompt path.

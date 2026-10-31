@@ -38,6 +38,7 @@ pub enum ConfigError {
     WorkspaceNotDirectory(PathBuf),
     OmpBinaryNotFound(PathBuf),
     EmptyOmpBinary,
+    InvalidListen(String),
     InvalidLimit(&'static str),
     ZeroTimeout(&'static str),
 }
@@ -63,6 +64,7 @@ impl std::fmt::Display for ConfigError {
                 write!(f, "OMP executable was not found: {}", path.display())
             }
             Self::EmptyOmpBinary => write!(f, "OMP executable path is empty"),
+            Self::InvalidListen(address) => write!(f, "invalid listen address: {address}"),
             Self::InvalidLimit(name) => write!(f, "{name} must be greater than zero"),
             Self::ZeroTimeout(name) => write!(f, "{name} must be greater than zero"),
         }

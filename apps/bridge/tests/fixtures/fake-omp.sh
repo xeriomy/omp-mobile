@@ -1,6 +1,10 @@
 #!/bin/sh
 # TEST FIXTURE ONLY. This is not OMP and must never be presented as the real engine.
 MODE="__MODE__"
+if [ "$1" = "--version" ]; then
+  printf '%s\n' 'omp/18.13.3'
+  exit 0
+fi
 printf '%s\n' "$$" > "$0.pid"
 
 if [ "$MODE" = "no-model" ]; then

@@ -36,6 +36,17 @@ Prove the riskiest integration first: a real OMP process must launch from the ta
 
 **Exit criteria:** authenticated test client can create a runtime and receive real state/events; unauthorized tests fail closed.
 
+## Workstream C.1 — install, discovery, and lifecycle (Phase 1.5)
+
+- Persist validated configuration atomically with private permissions; never store tokens, pairing codes, provider keys, prompts, or file content.
+- Discover OMP in a bounded priority order and validate executable shape, version policy, and a real RPC startup.
+- Add `setup`, background `start`, `start --foreground`, `stop`, `restart`, `status`, `logs`, `doctor`, `config`, safe `update`, and safe `uninstall`.
+- Detach with `setsid`, deliver the pairing code through a private handshake, record PID identity, recover stale state, and rotate bounded logs.
+- Publish aarch64/x86_64 glibc release assets with SHA-256 and an installer that refuses root by default, bad checksums, unsupported platforms, and a running bridge.
+- Add loopback-only mobile auto-detection with capabilities validation and manual URL fallback.
+
+**Exit criteria:** install once, `setup`, `start`, open the app, auto-detect, pair, and see real state. Host evidence is required; device and release evidence must be recorded separately.
+
 ## Workstream D — mobile shell and connection flow
 
 - Scaffold Tauri 2 + Svelte + TypeScript using a pinned package manager/toolchain.

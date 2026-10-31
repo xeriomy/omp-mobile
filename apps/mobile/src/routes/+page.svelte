@@ -1,13 +1,18 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import {
     BridgeError,
     BridgeSocket,
-    fetchHealth,
+    clearSavedBridgeUrl,
+    discoverBridge,
     fetchStatus,
+    loadSavedBridgeUrl,
     normalizeBridgeUrl,
     pair,
+    probeBridge,
     revokeToken,
+    saveBridgeUrl,
+    type BridgeCapabilities,
     type BridgeEvent,
     type EnginePhase,
     type StatusResponse,
@@ -15,6 +20,7 @@
 
   type Phase = 'idle' | 'connecting' | 'connected' | 'error';
   type SocketState = 'closed' | 'connecting' | 'live' | 'paused';
+  type Detection = 'idle' | 'searching' | 'found' | 'not-found';
 
   const MAX_EVENTS = 20;
 
@@ -27,10 +33,13 @@
   let tokenExpiresAt = $state(0);
   let phase = $state<Phase>('idle');
   let socketState = $state<SocketState>('closed');
+  let detection = $state<Detection>('idle');
+  let capabilities = $state<BridgeCapabilities | null>(null);
   let status = $state<StatusResponse | null>(null);
   let events = $state<BridgeEvent[]>([]);
   let message = $state('');
   let busy = $state(false);
+  let detecting = $state(false);
   let pollTimer: ReturnType<typeof setInterval> | undefined;
   let socket: BridgeSocket | null = null;
 
@@ -117,6 +126,39 @@
     socket.connect();
   }
 
+  async function detect(): Promise<void> {
+    if (detecting || hasSession) {
+      return;
+    }
+    detecting = true;
+    detection = 'searching';
+    message = '';
+    try {
+      const saved = loadSavedBridgeUrl();
+      let found: Awaited<ReturnType<typeof probeBridge>> | null = null;
+      if (saved) {
+        try {
+          found = await probeBridge(saved);
+        } catch {
+          // Saved URL no longer answers; fall through to loopback discovery.
+        }
+      }
+      found ??= await discoverBridge();
+      bridgeUrl = found.baseUrl;
+      baseUrl = found.baseUrl;
+      eventUrl = found.eventUrl;
+      capabilities = found.capabilities;
+      detection = 'found';
+      message = `Bridge ${found.capabilities.bridgeVersion} detected. Enter the pairing code printed by omp-bridge.`;
+    } catch (error) {
+      detection = 'not-found';
+      capabilities = null;
+      message = describeError(error);
+    } finally {
+      detecting = false;
+    }
+  }
+
   async function connect(): Promise<void> {
     if (busy) {
       return;
@@ -128,7 +170,9 @@
       const endpoints = normalizeBridgeUrl(bridgeUrl);
       baseUrl = endpoints.baseUrl;
       eventUrl = endpoints.eventUrl;
-      await fetchHealth(baseUrl);
+      const probed = await probeBridge(baseUrl);
+      capabilities = probed.capabilities;
+      detection = 'found';
 
       let activeToken = token;
       if (!activeToken) {
@@ -147,6 +191,7 @@
       }
 
       status = await fetchStatus(baseUrl, activeToken);
+      saveBridgeUrl(baseUrl);
       phase = 'connected';
       openSocket(activeToken);
       startPolling();
@@ -190,6 +235,12 @@
     dropSession('Enter a new pairing code from the running bridge.');
   }
 
+  function forgetSavedUrl(): void {
+    clearSavedBridgeUrl();
+    detection = 'idle';
+    message = 'Saved bridge URL cleared. Enter a URL manually or detect again.';
+  }
+
   function engineLabel(state: EnginePhase | undefined): string {
     switch (state) {
       case 'ready':
@@ -213,6 +264,32 @@
         return 'warn';
       case 'failed':
       case 'exited':
+        return 'bad';
+      default:
+        return 'muted';
+    }
+  }
+
+  function detectionLabel(): string {
+    switch (detection) {
+      case 'searching':
+        return 'Searching';
+      case 'found':
+        return 'Detected';
+      case 'not-found':
+        return 'Not found';
+      default:
+        return 'Not checked';
+    }
+  }
+
+  function detectionTone(): string {
+    switch (detection) {
+      case 'found':
+        return 'ok';
+      case 'searching':
+        return 'warn';
+      case 'not-found':
         return 'bad';
       default:
         return 'muted';
@@ -282,6 +359,14 @@
     return new Date(milliseconds).toLocaleTimeString();
   }
 
+  onMount(() => {
+    const saved = loadSavedBridgeUrl();
+    if (saved) {
+      bridgeUrl = saved;
+    }
+    void detect();
+  });
+
   onDestroy(() => {
     stopPolling();
     socket?.close();
@@ -312,12 +397,35 @@
   <div class="content">
     {#if !hasSession}
       <section class="card" aria-labelledby="connect-heading">
-        <h2 id="connect-heading">Connect to the bridge</h2>
+        <div class="section-head">
+          <h2 id="connect-heading">Connect to the bridge</h2>
+          <span class="pill {detectionTone()}">{detectionLabel()}</span>
+        </div>
         <ol class="steps">
-          <li>Start <code>omp-bridge</code> in Termux.</li>
-          <li>Copy the loopback URL and the single-use pairing code it prints.</li>
-          <li>Enter both below. The bridge starts OMP and reports its real state.</li>
+          <li>Install <code>omp-bridge</code> once, then run <code>omp-bridge setup</code>.</li>
+          <li>
+            Start it with <code>omp-bridge start</code>. The app probes loopback automatically.
+          </li>
+          <li>Enter the single-use pairing code printed by the bridge.</li>
         </ol>
+
+        <div class="actions detect-actions">
+          <button type="button" onclick={() => void detect()} disabled={detecting || busy}>
+            {detecting ? 'Searching loopback…' : 'Detect bridge'}
+          </button>
+          {#if loadSavedBridgeUrl()}
+            <button type="button" class="link inline" onclick={forgetSavedUrl} disabled={busy}>
+              Clear saved URL
+            </button>
+          {/if}
+        </div>
+
+        {#if capabilities}
+          <p class="note" role="status">
+            Detected OMP Bridge {capabilities.bridgeVersion} · API {capabilities.apiVersion} · event version
+            {capabilities.eventVersion}
+          </p>
+        {/if}
 
         <form
           onsubmit={(event) => {
@@ -326,7 +434,7 @@
           }}
         >
           <label class="field" for="bridge-url">
-            <span>Bridge URL</span>
+            <span>Bridge URL (manual fallback)</span>
             <input
               id="bridge-url"
               name="bridge-url"
@@ -364,7 +472,7 @@
 
         <p class="note">
           The pairing code is single use and expires. The session token stays in memory only; it is
-          never stored on disk or placed in a URL.
+          never stored on disk or placed in a URL. Only the bridge URL is remembered.
         </p>
 
         {#if message}
@@ -811,6 +919,16 @@
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 0.875rem;
+  }
+
+  .detect-actions {
+    margin-top: 0;
+    margin-bottom: 0.875rem;
+  }
+
+  button.link.inline {
+    min-height: 2.75rem;
+    margin: 0;
   }
 
   .facts {

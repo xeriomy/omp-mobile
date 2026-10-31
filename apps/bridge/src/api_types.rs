@@ -23,6 +23,35 @@ impl HealthResponse {
     }
 }
 
+/// Unauthenticated identity document used by the mobile client to confirm that
+/// a loopback listener is an OMP bridge before pairing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilitiesResponse {
+    pub product: String,
+    pub api_version: String,
+    pub bridge_version: String,
+    pub event_version: u8,
+    pub features: Vec<String>,
+}
+
+impl CapabilitiesResponse {
+    pub fn current() -> Self {
+        Self {
+            product: "omp-bridge".to_owned(),
+            api_version: API_VERSION.to_owned(),
+            bridge_version: BRIDGE_VERSION.to_owned(),
+            event_version: EVENT_VERSION,
+            features: vec![
+                "pairing".to_owned(),
+                "status".to_owned(),
+                "events".to_owned(),
+                "token-revoke".to_owned(),
+            ],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PairRequest {

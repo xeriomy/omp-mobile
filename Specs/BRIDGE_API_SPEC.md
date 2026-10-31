@@ -13,10 +13,30 @@ This document defines the proposed client-facing contract. Implement it in `pack
 - Requests have body-size and timeout limits.
 - Mutating requests should be idempotent when practical or use a client-generated idempotency key where duplicate submission is dangerous.
 
-## 1a. Implemented Phase 1 subset (2026-10-30)
+## 1a. Implemented Phase 1 subset (2026-10-31)
 
 This is the contract the current bridge and mobile client implement. Later
 sections describe planned expansions; do not treat those as implemented.
+
+### Identity and capabilities
+
+`GET /api/v1/capabilities` is unauthenticated so a client can confirm that a
+loopback listener is an OMP bridge before sending a pairing code. It returns
+only non-secret product and version metadata:
+
+```json
+{
+  "product": "omp-bridge",
+  "apiVersion": "v1",
+  "bridgeVersion": "0.1.0",
+  "eventVersion": 1,
+  "features": ["pairing", "status", "events", "token-revoke"]
+}
+```
+
+The endpoint must not expose the OMP path, workspace, model, tokens, pairing
+codes, engine state, or provider configuration. `/healthz` remains the minimal
+`{"status":"ok"}` readiness check.
 
 ### Pairing
 
@@ -116,7 +136,9 @@ actions or history replay exist in this subset.
 A first-run local pairing flow must be designed before feature endpoints are enabled. It should require a one-time secret shown/created by an explicit Termux command or a similarly explicit user action. Pairing tokens expire and can be revoked. Do not print the long-lived token into ordinary logs.
 
 - `POST /api/v1/pair` — exchange a short-lived pairing secret for a client token.
-- `GET /api/v1/capabilities` — return API version, bridge version, OMP detection status, feature flags, and supported transport/event versions after authentication.
+- `GET /api/v1/capabilities` — implemented as an unauthenticated, non-secret
+  product/version identity document (see section 1a). Future fields such as OMP
+  detection status require authentication or must remain non-sensitive.
 - `POST /api/v1/tokens/revoke` — revoke the current token (or later, a specifically selected token).
 
 Token storage and pairing UX require a documented security review. WebSocket credentials must not appear in URL query strings.
@@ -188,7 +210,9 @@ Do not expose unbounded raw JSON blobs as the permanent client API. The bridge m
 
 ## 5. Compatibility
 
-- `GET /api/v1/capabilities` advertises bridge/API versions, OMP version if detected, and supported features.
+- `GET /api/v1/capabilities` advertises bridge/API versions and supported
+  features. It is implemented and unauthenticated; it must stay free of runtime
+  paths, credentials, prompts, and workspace details.
 - The frontend must degrade gracefully when optional features are unsupported.
 - Breaking changes require `/api/v2` or a compatible version negotiation policy.
 - Add API contract tests for every documented route, response, error and authorization requirement.

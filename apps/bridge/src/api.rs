@@ -1,8 +1,8 @@
 //! Versioned HTTP API and authenticated WebSocket event stream.
 
 use crate::api_types::{
-    API_VERSION, BRIDGE_VERSION, BridgeEvent, EVENT_VERSION, ErrorBody, ErrorEnvelope,
-    HealthResponse, PairRequest, PairResponse, StatusResponse, WebSocketInfo,
+    API_VERSION, BRIDGE_VERSION, BridgeEvent, CapabilitiesResponse, EVENT_VERSION, ErrorBody,
+    ErrorEnvelope, HealthResponse, PairRequest, PairResponse, StatusResponse, WebSocketInfo,
 };
 use crate::auth::{AuthStore, PairError};
 use crate::config::BridgeConfig;
@@ -45,6 +45,7 @@ pub struct AppState {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(health))
+        .route("/api/v1/capabilities", get(capabilities))
         .route("/api/v1/pair", post(pair))
         .route("/api/v1/status", get(status))
         .route("/api/v1/tokens/revoke", post(revoke))
@@ -59,6 +60,10 @@ pub fn router(state: AppState) -> Router {
 
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse::ok())
+}
+
+async fn capabilities() -> Json<CapabilitiesResponse> {
+    Json(CapabilitiesResponse::current())
 }
 
 async fn pair(

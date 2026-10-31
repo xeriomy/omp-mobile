@@ -179,6 +179,32 @@ async fn health_is_minimal_and_unauthenticated() {
 }
 
 #[tokio::test]
+async fn capabilities_are_unauthenticated_and_identify_the_bridge() {
+    let bridge = TestBridge::start("happy").await;
+    let response = bridge
+        .client
+        .get(format!("{}/api/v1/capabilities", bridge.base))
+        .send()
+        .await
+        .expect("capabilities request");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = response.json().await.expect("capabilities body");
+    assert_eq!(body["product"], "omp-bridge");
+    assert_eq!(body["apiVersion"], "v1");
+    assert_eq!(body["eventVersion"], 1);
+    assert!(
+        body["features"]
+            .as_array()
+            .is_some_and(|features| features.iter().any(|feature| feature == "pairing"))
+    );
+    let encoded = body.to_string();
+    for needle in ["pairingCode", "ompBin", "workspace", "apiKey"] {
+        assert!(!encoded.contains(needle), "capabilities leaked {needle}");
+    }
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn pairing_is_single_use_and_issues_a_bearer_token() {
     let bridge = TestBridge::start("happy").await;
     let token = bridge.token().await;

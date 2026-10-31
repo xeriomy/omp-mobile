@@ -104,6 +104,22 @@ Use one entry per meaningful decision. Update status when evidence changes the d
 - **Alternatives:** Actix Web (workable, but Axum keeps the existing Tokio stack and has a small WS surface); long-lived token in a query string (rejected: leaks into logs/history); token in `localStorage` (rejected until secure storage is verified); token with no expiry (rejected by the security spec); killing only the direct child (rejected: descendants can orphan).
 - **Consequences:** The HTTP API is versioned `/api/v1`, errors carry a stable code and random request ID, and the status DTO excludes prompts, session files, provider URLs, and keys. Pairing and token expiry are tested; a bridge restart requires re-pairing. The Tauri CSP allows only loopback HTTP/WS sources. The bridge currently owns exactly one OMP process; runtime multiplexing, prompts, abort, extension dialogs, and Android secure storage remain future work. Real OMP `18.13.3` evidence covers ready/negotiation/state/status/WS/shutdown only. On-device WebView networking remains an explicit open risk.
 
+## ADR-014 — Persistent configuration, bounded discovery, and background lifecycle
+
+- **Status:** Accepted and implemented; verified on this host with real OMP `18.14.0` and the fake fixture
+- **Decision:** Store validated configuration as `config.json` under `$OMP_BRIDGE_HOME` (default `$XDG_CONFIG_HOME/omp-bridge` or `$HOME/.config/omp-bridge`), with runtime files under `$XDG_RUNTIME_DIR/omp-bridge` or the config-home `run` directory, and logs under the config-home `logs` directory. Apply precedence explicit flag, environment, saved config, default. Write config atomically with mode `0600` and directories `0700`. Never persist tokens, pairing codes, provider keys, prompts, or file content. Discover OMP only from explicit/env/saved candidates, `PATH`, and a fixed documented location list; accept the first candidate that passes executable, `omp --version`, version policy, and a real RPC startup check. Use a hidden `run` child with `setsid`, a private `0600` startup handshake, `flock`, and PID identity from executable path plus `/proc/<pid>/stat` start time.
+- **Context:** The user needs a repeatable install-once flow: install APK, install bridge once, auto-detect OMP, `setup`, `start`, open app, detect, connect. A foreground-only bridge forces terminal use for every session. A saved executable path keeps startup deterministic, but a stale path or reused PID must never cause the wrong process to be signalled.
+- **Alternatives:** Environment-only configuration (rejected: poor phone UX); shell wrapper scripts for backgrounding (rejected: unsafe quoting and poor lifecycle control); trusting PID alone (rejected: PID reuse); recursive OMP search (rejected: unpredictable and slow); persisting the pairing code for later retrieval (rejected: secret at rest).
+- **Consequences:** `start` detaches and prints the pairing code once; a lost code requires a restart. `status`/`stop` fail closed on identity mismatch and clean stale state. `setup` and `doctor` start a real OMP RPC process, so they need a configured model and can take up to the startup timeout. CLI/environment overrides used with `start` are forwarded to the child but are not written back to `config.json`. Discovery rejects OMP majors other than 18 and versions below `18.13.3`; widening the range requires new evidence.
+
+## ADR-015 — GitHub Releases installer and two glibc targets
+
+- **Status:** Accepted; scripts tested locally, release workflow not yet executed
+- **Decision:** Publish `omp-bridge-aarch64-unknown-linux-gnu` and `omp-bridge-x86_64-unknown-linux-gnu` with SHA-256 files from a `v*` GitHub Release. Install with `scripts/install-bridge.sh`, which verifies the checksum, never uses `sudo`, refuses root unless `OMP_BRIDGE_ALLOW_ROOT=1`, rejects native Termux/musl/unknown architectures, and refuses to replace a running bridge. Keep `omp-bridge update` instructions-only; the installer is the upgrade path. `uninstall` keeps config unless `--purge` and requires `--yes` unless `--dry-run`.
+- **Context:** The first release must be installable without a Rust toolchain, and the host is glibc Linux under PRoot. Native Termux uses bionic and cannot run these binaries. Self-update would add signature/rollback complexity before the release process is proven.
+- **Alternatives:** Self-update (rejected for the first release); `cargo install` (rejected: requires a toolchain); Termux package (rejected until built and tested); curl-to-shell without checksum (rejected).
+- **Consequences:** The release workflow builds with `--locked`, strips binaries, publishes checksums, and checks that the tag matches the workspace version. Users must add `~/.local/bin` to `PATH` when needed. Android auto-detection validates `GET /api/v1/capabilities` before pairing and persists only the non-secret URL.
+
 ## Open decisions (must be resolved with evidence)
 
 - Which Tauri-compatible Android secure-storage plugin is maintained and suitable; tokens currently stay in memory, so this can wait until persistence is required.
@@ -112,3 +128,5 @@ Use one entry per meaningful decision. Update status when evidence changes the d
 - How to make `tauri icon` output deterministic in CI, or whether to stop regenerating icons during the APK build.
 - OpenAPI/event-schema generation and drift checks; the current contract is documented in `Specs/BRIDGE_API_SPEC.md` only.
 - How to run repeatable on-device install, launch, screenshot, and `adb logcat` checks in this environment.
+- Whether to add native Termux/bionic or musl release targets after real build and runtime evidence.
+- Whether release assets should gain signatures or reproducible-build attestations beyond SHA-256.

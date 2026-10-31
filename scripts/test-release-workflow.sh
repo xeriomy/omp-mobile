@@ -33,8 +33,9 @@ RESOLVE_LINE="$(line_of 'name: Resolve requested release tag')"
 CHECKOUT_LINE="$(line_of 'name: Check out the exact release tag')"
 VERIFY_LINE="$(line_of 'name: Verify exact tag, version, and source commit')"
 BUILD_LINE="$(line_of 'name: Build release binaries')"
-[ -n "$RESOLVE_LINE" ] && [ -n "$CHECKOUT_LINE" ] && [ -n "$VERIFY_LINE" ] && [ -n "$BUILD_LINE" ] ||
+if [ -n "$RESOLVE_LINE" ] && [ -n "$CHECKOUT_LINE" ] && [ -n "$VERIFY_LINE" ] && [ -n "$BUILD_LINE" ]; then :; else
   fail "missing workflow step"
+fi
 
 [ "$RESOLVE_LINE" -lt "$CHECKOUT_LINE" ] || fail "tag must resolve before checkout"
 [ "$CHECKOUT_LINE" -lt "$VERIFY_LINE" ] || fail "tag must be checked out before verification"

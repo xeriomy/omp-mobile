@@ -6,10 +6,11 @@
 
 - **Project:** OMP Client
 - **Milestone:** Phase 1.5 — bridge install, discovery, lifecycle, and mobile auto-detection
-- **Status:** Host lifecycle **PASS** with real OMP. Rust/frontend/installer automated checks **PASS**. Android CI **PASS** (run `41225948350`). Phase 1.5 mobile UI is code/test verified but not installed on a device. Bridge release workflow not executed.
+- **Status:** Host lifecycle **PASS** with real OMP. Rust/frontend/installer automated checks **PASS**. Android CI **PASS**. Bridge release `v0.1.0` published and the HTTPS installer verified. Phase 1.5 mobile UI is code/test verified but not installed on a device.
 - **Branch:** `Rust-Bridge-and-Android-Loopback` (placeholder branch from `main`), pushed to `origin`.
 - **Base commit:** `92acf28` (`docs: record verified Android pairing and live bridge state`)
 - **Code commit:** `d4105c6` (`feat(bridge): add lifecycle CLI, OMP discovery, installer, and mobile auto-detection`).
+- **Release:** `v0.1.0` at `1dd34ab`; assets built by run `41229501353`.
 - **Pull request:** [#3](https://github.com/xeriomy/omp-mobile/pull/3), open against `main`; checks pass.
 - **Working tree:** clean after the follow-up checkpoint commit.
 - **Last updated:** 2026-10-31
@@ -217,7 +218,27 @@ Node tests cover URL normalization/rejection, stable error codes, capability val
 
 ### Android CI
 
-GitHub Actions run [`41225948350`](https://github.com/xeriomy/omp-mobile/actions/runs/41225948350) on commit `3252680`: **PASS** in 6m33s. The workflow ran the root Rust `fmt`/`clippy`/`test` checks, installer `shellcheck` and tests, frontend format/test/check/build, and the arm64-v8a Android debug APK build. The artifact was not downloaded or installed on a device.
+GitHub Actions run [`41229498072`](https://github.com/xeriomy/omp-mobile/actions/runs/41229498072) on commit `1dd34ab`: **PASS** in 5m13s. The workflow ran the root Rust `fmt`/`clippy`/`test` checks, installer `shellcheck` and tests, frontend format/test/check/build, and the arm64-v8a Android debug APK build. The artifact was not downloaded or installed on a device.
+
+### Bridge release and HTTPS installer
+
+GitHub Actions run [`41229501353`](https://github.com/xeriomy/omp-mobile/actions/runs/41229501353) on tag `v0.1.0`: **PASS** in 2m43s. Published release [v0.1.0](https://github.com/xeriomy/omp-mobile/releases/tag/v0.1.0) with:
+
+- `omp-bridge-aarch64-unknown-linux-gnu` (3,741,104 bytes);
+- `omp-bridge-x86_64-unknown-linux-gnu` (4,139,624 bytes);
+- a `.sha256` file for each target.
+
+The first release attempt failed because the cross linker lacked `Scrt1.o`/`crti.o`; commit `1dd34ab` added `libc6-dev-arm64-cross`. The tag was moved to that commit and the rerun passed.
+
+The HTTPS installer was exercised from the feature branch into a temporary directory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/xeriomy/omp-mobile/Rust-Bridge-and-Android-Loopback/scripts/install-bridge.sh \
+  | OMP_BRIDGE_ALLOW_ROOT=1 OMP_BRIDGE_INSTALL_DIR=/tmp/opencode/bridge-install sh
+/tmp/opencode/bridge-install/omp-bridge --version
+```
+
+Result: checksum `OK`, installed `omp-bridge 0.1.0`.
 
 ## Security review
 
@@ -239,9 +260,7 @@ GitHub Actions run [`41225948350`](https://github.com/xeriomy/omp-mobile/actions
 
 - **Phase 1.5 UI not device-verified.** The auto-detection screen, manual fallback, saved-URL behavior, and capabilities validation pass code tests only. The previous Phase 1 APK evidence predates this UI.
 - **No working `adb`.** On-device install, `adb logcat`, restart, lifecycle, and keyboard behavior cannot be captured here.
-- **Release workflow not executed.** `bridge-release.yml` is unrun on GitHub Actions; no release assets exist yet.
 - **Native Termux unsupported.** Release binaries are glibc-only; the installer rejects Termux/bionic, musl, and unknown architectures. Termux support needs a real build and runtime test.
-- **Installer download path unproven.** Local `file://` tests pass; the GitHub Releases URL path has not been exercised.
 - **No OpenAPI contract package.** The v1 subset is documented in `Specs/BRIDGE_API_SPEC.md`; `packages/contracts` and generated-type drift checks do not exist.
 - **No prompt/control API.** Chat, abort, sessions, model selection, files, Git, and extension UI remain future phases.
 - **No Android secure storage.** The token is memory-only, so app restart requires pairing again.
@@ -250,4 +269,4 @@ GitHub Actions run [`41225948350`](https://github.com/xeriomy/omp-mobile/actions
 
 ## Next best action
 
-Install the Phase 1.5 APK on the Android 15 device and verify auto-detection, capabilities validation, manual URL fallback, and pairing against a real background bridge. Then run the bridge release workflow for `v0.1.0`, verify the published SHA-256 assets and installer over HTTPS, and add the OpenAPI/event contract package with generated types and a drift check before starting the Phase 3 prompt path.
+Install the released `v0.1.0` bridge in the Android PRoot environment with `OMP_BRIDGE_ALLOW_ROOT=1`, run `omp-bridge setup` and `omp-bridge start`, then verify the installed Phase 1.5 APK auto-detects the bridge, validates capabilities, pairs, and shows real state. After that, add the OpenAPI/event contract package with generated types and a drift check before starting the Phase 3 prompt path.

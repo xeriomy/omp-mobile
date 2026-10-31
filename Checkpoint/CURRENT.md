@@ -9,9 +9,9 @@
 - **Status:** Host lifecycle **PASS** with real OMP. Rust/frontend/installer automated checks **PASS**. Phase 1.5 mobile UI is code/test verified but not installed on a device. Release workflow not executed.
 - **Branch:** `Rust-Bridge-and-Android-Loopback` (placeholder branch from `main`)
 - **Base commit:** `92acf28` (`docs: record verified Android pairing and live bridge state`)
-- **Code commit:** pending in this working tree; recorded in the follow-up checkpoint commit.
+- **Code commit:** `d4105c6` (`feat(bridge): add lifecycle CLI, OMP discovery, installer, and mobile auto-detection`).
 - **Pull request:** [#3](https://github.com/xeriomy/omp-mobile/pull/3), open against `main`.
-- **Working tree:** Phase 1.5 changes uncommitted at the time of writing.
+- **Working tree:** clean after the follow-up checkpoint commit.
 - **Last updated:** 2026-10-31
 
 ## Environment (measured)

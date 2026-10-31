@@ -1,0 +1,171 @@
+name: Bridge release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bridge-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.91.1"
+
+jobs:
+  release:
+    name: Build and publish bridge binaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Resolve requested release tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Release tag must look like v0.0.1: $TAG"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the exact release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact tag, version, and source commit
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          test -z "$(git symbolic-ref -q HEAD || true)" || {
+            echo "::error::Release checkout must be detached at tag $TAG"
+            exit 1
+          }
+          ACTUAL_TAG="$(git describe --tags --exact-match HEAD)"
+          test "$ACTUAL_TAG" = "$TAG" || {
+            echo "::error::HEAD is at $ACTUAL_TAG, not requested tag $TAG"
+            exit 1
+          }
+          COMMIT="$(git rev-parse HEAD)"
+          TAG_COMMIT="$(git rev-parse "$TAG^{commit}")"
+          test "$COMMIT" = "$TAG_COMMIT" || {
+            echo "::error::Tag $TAG resolves to $TAG_COMMIT, but HEAD is $COMMIT"
+            exit 1
+          }
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          test -n "$VERSION"
+          test "$TAG" = "v$VERSION" || {
+            echo "::error::Tag $TAG does not match workspace version v$VERSION"
+            exit 1
+          }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "Source commit: $COMMIT ($TAG)"
+
+      - name: Install Rust toolchain and targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal \
+            --target aarch64-unknown-linux-gnu \
+            --target x86_64-unknown-linux-gnu
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          cargo --version
+
+      - name: Install cross linker
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-aarch64-linux-gnu \
+            libc6-dev-arm64-cross
+
+      - name: Run bridge tests
+        run: cargo test -p omp-bridge --lib
+
+      - name: Build release binaries
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for TARGET in aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
+            cargo build --release --locked -p omp-bridge --target "$TARGET"
+            BIN="target/$TARGET/release/omp-bridge"
+            test -x "$BIN"
+            case "$TARGET" in
+              aarch64-*) aarch64-linux-gnu-strip "$BIN" ;;
+              *) strip "$BIN" ;;
+            esac
+            ASSET="dist/omp-bridge-$TARGET"
+            cp "$BIN" "$ASSET"
+            chmod 0755 "$ASSET"
+            (
+              cd dist
+              sha256sum "omp-bridge-$TARGET" >"omp-bridge-$TARGET.sha256"
+            )
+            file "$ASSET"
+            sha256sum "$ASSET"
+          done
+          printf 'tag=%s\nversion=%s\ncommit=%s\n' \
+            "${{ steps.source.outputs.tag }}" \
+            "${{ steps.source.outputs.version }}" \
+            "${{ steps.source.outputs.commit }}" >dist/BUILD_INFO.txt
+          cat dist/BUILD_INFO.txt
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.source.outputs.tag }}
+          VERSION: ${{ steps.source.outputs.version }}
+          COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* \
+              --title "OMP Bridge $VERSION" \
+              --notes "Bridge binaries for glibc Linux (aarch64 and x86_64). Source commit: $COMMIT. Download the asset for your architecture, verify its .sha256 file, then run the installer."
+          fi
+
+      - name: Record release summary
+        shell: bash
+        env:
+          TAG: ${{ steps.source.outputs.tag }}
+          COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          {
+            echo "## Bridge release $TAG"
+            echo ""
+            echo "Source commit: \`$COMMIT\`"
+            echo ""
+            echo "| Asset | SHA-256 |"
+            echo "|---|---|"
+            for CHECKSUM in dist/*.sha256; do
+              ASSET="$(basename "$CHECKSUM" .sha256)"
+              HASH="$(cut -d ' ' -f 1 "$CHECKSUM")"
+              echo "| \`$ASSET\` | \`$HASH\` |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

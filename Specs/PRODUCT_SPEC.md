@@ -9,14 +9,16 @@ Provide a polished Android client for controlling the real OMP coding agent in a
 The target user already has OMP installed and configured in Termux or another host. They want to open a mobile app, connect to the bridge, choose a project/session, ask OMP to work, follow progress, inspect results, and continue the task without using a terminal for routine operations.
 
 Primary flow:
-1. Install/start `omp-bridge` in the host environment.
-2. Open OMP Client and connect/pair with the local bridge.
-3. Select an allowed workspace.
-4. Create or resume a session.
-5. Send a prompt and observe live agent events/tool activity.
-6. Answer any OMP UI/approval dialogs explicitly.
-7. Stop, queue, or steer follow-up work.
-8. Inspect session history, files, and Git changes.
+1. Install the `omp-bridge` release once (glibc Linux/PRoot) and run `omp-bridge setup` to discover OMP.
+2. Start the bridge with `omp-bridge start`; it prints the loopback URL and a single-use pairing code.
+3. Open OMP Client; it auto-detects the loopback bridge and validates its capabilities.
+4. Enter the pairing code and connect.
+5. Select an allowed workspace.
+6. Create or resume a session.
+7. Send a prompt and observe live agent events/tool activity.
+8. Answer any OMP UI/approval dialogs explicitly.
+9. Stop, queue, or steer follow-up work.
+10. Inspect session history, files, and Git changes.
 
 ## 3. MVP features
 
@@ -88,7 +90,8 @@ Primary flow:
 
 ## 7. Success criteria
 
-- A new install can connect to a running bridge with explicit pairing.
+- A new install can install the bridge once, run `setup`, run `start`, and connect to the running bridge with explicit pairing.
+- The app auto-detects a loopback bridge, validates its capabilities, and falls back to a manual loopback URL without scanning the LAN.
 - The app can start a real OMP runtime in an allowed workspace and display real state.
 - A prompt from the app leads to visible streaming and a terminal completion/error state.
 - Abort works and is reflected by real OMP state/events.

@@ -10,16 +10,20 @@
 ### R2. Termux process and build environment
 - **Risk:** Rust bridge binary, dependencies, or child-process behavior differs in Termux/Proot.
 - **Mitigation:** build and run a minimal Rust child-process harness inside the actual target environment before selecting deployment scripts.
-- **Phase 0 evidence (2026-10-29):** `spike/rpc-harness` ran against real OMP from this Android/PRoot environment and exited cleanly. Dependencies and deployment under a plain Termux toolchain are still unverified; this host needed Ubuntu `gcc` because Termux `cc` could not link the Ubuntu Rust runtime.
+- **Phase 0 evidence (2026-10-29):** `spike/rpc-harness` ran against real OMP from this Android/PRoot environment and exited cleanly.
+- **Phase 1 evidence (2026-10-30):** the full `omp-bridge` workspace builds and its opt-in real-OMP test passes in this PRoot environment. Deployment under a plain Termux toolchain is still unverified; this host needed Ubuntu `gcc` because Termux `cc` could not link the Ubuntu Rust runtime.
+- **Phase 1.5 update (2026-10-31):** the lifecycle CLI, discovery, background start/stop, and real-OMP `setup`/`start`/`status`/`stop` pass on this glibc/PRoot host. Release assets are glibc-only; native Termux is deliberately rejected by the installer.
 
 ### R3. Android WebView loopback/CORS behavior
 - **Risk:** Tauri Android's WebView cannot reach the bridge using the planned `http://127.0.0.1`/WebSocket configuration without platform-specific configuration.
 - **Mitigation:** implement an early physical-device spike, inspect actual origins and logs, and only then finalize listener, cleartext, CORS, and secure-storage decisions.
-- **Phase 0 status:** build gate passed. GitHub Actions run `40948549197` produced a verified arm64-v8a debug APK on an x86_64 runner and a user installed it with a screenshot of the rendered smoke screen. The WebView now has the ADR-012 CSP (run `41110700795`), but no device run of that build yet. Loopback, origin, lifecycle, and `adb logcat` tests remain unrun, so the risk itself is still open.
+- **Phase 0 status:** build gate passed. GitHub Actions run `40948549197` produced a verified arm64-v8a debug APK on an x86_64 runner and a user installed it with a screenshot of the rendered smoke screen. The WebView now has the ADR-012 CSP (run `41110700795`), but no device run of that build yet.
+- **Phase 1 update:** the app now makes real loopback HTTP/WS requests and the CSP allows those sources.
+- **Resolved 2026-10-30:** the installed `app-universal-debug.apk` (run `41131544289`) paired from the Android 15 device with `omp-bridge` on `127.0.0.1:8765`, showed `Connected`/`Live`, engine `Ready`, real model/protocol, and a live `bridge.status` event. Loopback HTTP, WebSocket, cleartext, CSP, and the app origin all worked on device. Remaining gap: `adb logcat`, restart, lifecycle, and keyboard behavior are not captured because the bundled platform-tools binary is x86_64 on an aarch64 host.
 
 ### R4. Secure token storage
 - **Risk:** selected storage plugin is unsupported, stale, or uses unprotected storage on Android.
-- **Mitigation:** verify official plugin docs/source, Android implementation, maintenance, permissions, and behavior on the target Tauri version. Keep tokens memory-only until verified.
+- **Mitigation:** verify official plugin docs/source, Android implementation, maintenance, permissions, and behavior on the target Tauri version. The current client keeps tokens memory-only and re-pairs after restart; no plugin has been selected.
 
 ### R5. Session enumeration
 - **Risk:** OMP RPC exposes session transitions and entries but not the session catalog in a stable API matching the desired UI.
@@ -29,9 +33,12 @@
 
 ### R6. Large streaming events / backpressure
 - **Mitigation:** protocol limits, v2 chunk validation, bounded channel, dropped-client handling, resync state snapshots, metrics without payload logging.
+- **Phase 1 evidence:** frame limits, 256-event broadcast capacity, recent-event cap, WS send timeout, lag resync, and per-client close handling are implemented and tested with the fake fixture. Real prompt streaming volume is still untested.
 
 ### R7. Process leak on app/bridge lifecycle change
 - **Mitigation:** explicit runtime ownership, cancellation token, graceful close, bounded shutdown, integration test for orphan processes.
+- **Phase 1 evidence:** one explicit engine owner; stdin close, 3-second grace, then SIGKILL to the child's own process group. Lifecycle tests assert the fixture child is gone after success, timeout, and failure paths. Android process-death behavior is still unverified.
+- **Phase 1.5 evidence:** background start records PID identity, holds an exclusive lock, and `stop` verifies executable path plus start time before signalling. Stale PID state is removed; an orphaned OMP child recorded in runtime state is terminated. Android process-death behavior remains unverified.
 
 ### R8. Unsafe file path access
 - **Mitigation:** configured roots, workspace IDs, canonicalization, symlink containment, path fuzz tests.
@@ -46,6 +53,21 @@
 - **Risk:** GitHub runner images, Android SDK packages, Gradle, AGP, or action behavior changes and silently alters the APK.
 - **Mitigation:** pin action SHAs, Node/JDK/Rust/Android packages, and the Gradle/AGP versions generated by the Tauri CLI; verify generated pins in the workflow; record APK size, SHA-256, package, SDK levels, and ABI. Re-run and compare before accepting a toolchain bump.
 - **Current evidence:** run `40948549197` passed with the pinned versions and uploaded artifact metadata. The workflow checks cmdline-tools SHA-256 and fails if the expected Gradle/AGP/SDK values are missing.
+
+### R12. Release supply chain and installer behavior
+- **Risk:** a corrupted or substituted release asset installs a malicious bridge, or the installer overwrites a running binary.
+- **Mitigation:** publish SHA-256 for every asset; verify before replacement; refuse a running bridge; never use `sudo`; reject unsupported platforms; keep self-update out of the binary; build only from the validated tag commit.
+- **Current evidence:** `scripts/test-install-bridge.sh` covers checksum failure, ordinary-root refusal, PRoot install with warning, PRoot `$HOME` confinement, target detection, and running-bridge refusal. `scripts/test-release-workflow.sh` asserts exact-tag checkout and build metadata. Android CI run `41248850886` passed. The test release `v0.1.0` installed over HTTPS into a temporary PRoot `$HOME` with checksum `OK`.
+
+### R13. Unauthenticated capability fingerprint
+- **Risk:** `/api/v1/capabilities` reveals bridge presence and versions to any loopback caller.
+- **Mitigation:** return only product/API/event versions and feature names; no paths, workspace, model, engine state, tokens, or pairing data. Pairing remains explicit and rate-limited.
+- **Current evidence:** HTTP test asserts the response excludes token, pairing-code, OMP path, and workspace fields.
+
+### R14. PRoot detection mistaken for device root
+- **Risk:** a user or tool reads the PRoot warning as permission to install as Android device root, or the detection is spoofed outside a container.
+- **Mitigation:** the warning states this is the PRoot container user, not Android root; the install must resolve under `$HOME` and contain no `..`; ordinary root still needs `OMP_BRIDGE_ALLOW_ROOT=1`; the binary never performs root-only actions.
+- **Current evidence:** installer fixtures cover the warning, `$HOME` escape refusal, `PROOT_L2S_DIR` detection, and explicit override warning. This is a convenience guard, not a security boundary.
 
 ## Questions that require a decision only after evidence
 - Should desktop builds be supported in MVP, or only Android-first with desktop as developer convenience?

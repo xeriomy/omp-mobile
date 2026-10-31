@@ -22,8 +22,8 @@
 ## Required controls
 
 1. Loopback bind (`127.0.0.1`) by default; explicit opt-in and warnings for any wider bind.
-2. Pairing secret is short-lived and single-use. Client tokens are revocable, generated with a cryptographically secure RNG, and never included in URL query strings.
-3. Store tokens only in an Android-secure storage option verified to work with the selected Tauri version, or require repairing until such storage is implemented. Never store tokens in plain localStorage.
+2. Pairing secret is short-lived and single-use. Client tokens are revocable, expire (24 hours by default), are generated with a cryptographically secure RNG, and are never included in URL query strings.
+3. Store tokens only in an Android-secure storage option verified to work with the selected Tauri version, or require repairing until such storage is implemented. Never store tokens in plain localStorage. The current client keeps the token in memory only, so app or bridge restart requires pairing again.
 4. Authenticate all functional HTTP endpoints. Authenticate WebSocket before emitting any private event; close on timeout/failure.
 5. Use exact tested Origin allowlisting and Host validation. Never fix CORS by adding `*`.
 6. Request/body/frame/output limits, bounded channels and rate limits.
@@ -50,6 +50,36 @@ Remote access is not enabled in the first milestone. Before adding it:
 - test token rotation, expiry and revocation;
 - warn users not to forward an unprotected port directly to the public internet.
 
+## Implemented controls (2026-10-31)
+
+- Listener validation rejects any non-loopback address; `0.0.0.0` exits before spawning OMP.
+- Pairing codes are 10 characters from a 32-symbol unambiguous alphabet, single use, TTL 10 minutes, and locked after five failures. Only SHA-256 hashes are kept.
+- Client tokens are 32 random bytes encoded URL-safe, stored as SHA-256 hashes, TTL 24 hours, revocable, and invalidated by bridge restart. Pair responses include `expiresAt`.
+- Every functional HTTP route requires a bearer token. The WebSocket requires a first-message token within 5 seconds and sends no event before authentication; tokens never appear in URLs.
+- `GET /api/v1/capabilities` is unauthenticated by design but returns only product, API/bridge/event versions, and feature names. It exposes no paths, workspace, model, engine state, tokens, or pairing data.
+- Host must be a loopback name with the configured port. Non-empty Origin must exactly match the configured allowlist. CORS is never `*`.
+- HTTP bodies are limited to 16 KiB. OMP physical frames and reassembled chunks are bounded by the configured and advertised limits. The event broadcast queue is bounded and lag triggers `bridge.resync`.
+- Error bodies contain a random request ID, a stable code, and a generic message; pairing/token values are never logged.
+- OMP runs in its own process group; shutdown closes stdin, drains stdout, then sends SIGKILL to that group only after a 3-second grace period.
+- The mobile client accepts only loopback `http://` origins, sends the token in the WebSocket first message, and never writes it to storage.
+- Tests cover unauthenticated HTTP, revoked and expired tokens, pairing reuse/rate limit, Origin and Host rejection, WebSocket pre-auth silence, bad first messages, event delivery, oversized frames, startup timeout, missing binary/model, and child cleanup.
+
+### Persistent configuration and background lifecycle (Phase 1.5)
+
+- Config lives under a `0700` home in `config.json` written atomically with mode `0600`. It stores no bearer tokens, pairing codes, provider keys, prompts, session content, or file content.
+- Configuration precedence is explicit flag, environment, saved file, default. CLI/environment overrides used for one run are not persisted by `start`, `restart`, or `doctor`.
+- OMP discovery is bounded to explicit/env/saved candidates, `PATH`, and a fixed documented location list. It never walks a tree and never runs a shell.
+- A candidate is accepted only after an executable check, a bounded `omp --version`, the `18.x`/`>=18.13.3` policy, and a real RPC `ready`/negotiation/`get_state` sequence.
+- Background start uses `setsid`, closes stdin, redirects stdout/stderr to a `0600` log, and passes configuration through explicit arguments.
+- The child holds an exclusive `flock`. PID files include the executable path and `/proc/<pid>/stat` start time; status/stop refuse to signal a PID whose identity does not match, and stale state is removed.
+- The pairing code is delivered to the parent through a private `0600` handshake file, printed once, and then the handshake is deleted. It is not written to configuration or logs.
+- Logs are bounded and rotated, and contain lifecycle diagnostics only.
+- The installer downloads only GitHub Release assets, verifies SHA-256 before replacement, never uses `sudo`, refuses root unless explicitly allowed for containers/tests, rejects native Termux/musl/unknown targets, and refuses to replace a running bridge.
+- `uninstall` requires `--yes` unless `--dry-run`, refuses while running, keeps configuration unless `--purge`, and supports keeping the binary.
+- The mobile client probes only loopback, requires the expected capabilities identity before pairing, keeps the token in memory, and persists only the non-secret bridge URL.
+
+Still open: on-device WebView loopback/origin behavior for this Phase 1.5 UI, Android secure storage, prompt/approval paths, native Termux packaging, release-workflow execution, and any LAN or remote mode.
+
 ## Security acceptance tests
 
 - No token: all functional endpoints reject.
@@ -62,3 +92,6 @@ Remote access is not enabled in the first milestone. Before adding it:
 - Oversized request/RPC/event is rejected without unbounded allocation.
 - Logs do not contain pairing secrets, bearer tokens, provider keys, prompts or file contents by default.
 - OMP crash/shutdown does not leave an orphan child process.
+- Config, PID, state, and handshake files are private; a reused PID is not signalled.
+- The installer rejects a bad checksum, root without opt-in, and a running bridge.
+- Capability probing rejects unrelated loopback listeners before pairing.

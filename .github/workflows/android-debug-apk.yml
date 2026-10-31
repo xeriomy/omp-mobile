@@ -129,19 +129,34 @@ jobs:
       - name: Validate package manifest
         run: node scripts/validate-manifest.mjs
 
+      - name: Validate bridge installer scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends shellcheck
+          fi
+          shellcheck scripts/*.sh
+          bash -n scripts/install-bridge.sh
+          scripts/test-install-bridge.sh
+          scripts/test-release-workflow.sh
+
       - name: Run frontend checks
         working-directory: apps/mobile
         run: |
           npm run format:check
+          npm run test
           npm run check
           npm run build
 
-      - name: Run Rust spike checks
-        working-directory: spike/rpc-harness
+      - name: Run Rust workspace checks
+        shell: bash
         run: |
+          set -euo pipefail
           cargo fmt --all -- --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
 
       - name: Check app Rust formatting and lockfile
         run: |

@@ -14,6 +14,20 @@ Tested with the official OMP `18.13.3` `omp-linux-arm64` release in the target A
 
 `negotiate_protocol` with `protocolVersion: 2` returned a matching-id success response, and `get_state` returned a matching-id success response before a clean stdin-close shutdown (exit code `0`, stderr empty). A launch without any configured model exits `1` before emitting `ready`; that is a configuration error, not a protocol failure. Prompt, abort, extension-dialog, and approval paths were not exercised because no provider credentials were available. Re-test them before treating those parts of this spec as verified.
 
+### Bridge implementation evidence (2026-10-30)
+
+The `apps/bridge` engine implements the following against OMP `18.13.3`:
+
+- spawn with an explicit argument array, selected working directory, piped stdin/stdout/stderr, and its own process group;
+- concurrent bounded stderr drain, redaction, and a bounded in-memory tail used once to classify startup failure;
+- real `ready` parsing, advertised-limit enforcement, v2 negotiation, and id-correlated `get_state`;
+- status becomes `ready` only after all three succeed; otherwise it is `failed` with a typed code;
+- a process that exits before `ready` is classified as `OMP_MISSING_MODEL` when the redacted stderr tail reports no selected model, not as an RPC failure;
+- graceful stdin-close shutdown, then process-group SIGKILL after a 3-second grace period;
+- real stdout events are broadcast to authenticated WebSocket clients with a versioned envelope.
+
+The opt-in `real_omp` test completed the real ready/negotiation/state sequence, authenticated HTTP status, and clean shutdown. The fake fixture tests separately cover v1 fallback, malformed frames, unsupported versions, rejected negotiation/state, oversized frames, and startup timeout. No prompt or approval frame was sent.
+
 ## Launch
 
 Initial candidate:

@@ -28,7 +28,7 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 - **Exit:** authenticated test client controls a real OMP runtime. **Partial:** real status/WS/auth/shutdown proven on host and from the Android app; prompt/control actions remain open.
 
 ## Phase 1.5 — Bridge install, discovery, and lifecycle
-**Status: Done on host and in CI — installer, discovery, config, background CLI, capabilities, and mobile detection implemented and tested; device verification and the `v0.0.1` release await user approval**
+**Status: Done on host and in CI; `v0.0.1` published and verified. Physical-device APK verification remains open.**
 
 - [x] Persistent config with atomic private writes and schema migration. **Done:** `config_store.rs`, `0600`/`0700` permissions, no secrets persisted, tests.
 - [x] Bounded OMP discovery and version policy. **Done:** explicit/env/saved/`PATH`/known locations, executable and `--version` checks, `18.x`/`>=18.13.3`, real RPC verification.
@@ -37,7 +37,7 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 - [x] Release installer and workflow. **Done and executed:** SHA-256 verification, PRoot-aware root handling, platform/running-bridge refusal, aarch64/x86_64 glibc targets, exact-tag checkout and build-metadata assertions, installer fixtures, CI run `41248850886`.
 - [x] Mobile loopback auto-detection and explicit pairing. **Done at code/test level:** saved URL probe, `8765`–`8767` loopback discovery, capabilities validation, manual fallback, memory-only token, Node tests. Not installed on a device.
 - [x] Documentation and evidence. **Done:** lifecycle spec, API/security updates, README, ADRs, risks, checkpoint.
-- **Exit:** install bridge once, run `setup`, `start`, open app, auto-detect, pair, and see real state. **Partial:** host CLI, real-OMP flow, PRoot install, and CI pass; device UI and official `v0.0.1` release download not yet executed.
+- **Exit:** install bridge once, run `setup`, `start`, open app, auto-detect, pair, and see real state. **Partial:** host CLI, real-OMP flow, PRoot install, CI, and the `v0.0.1` release pass; device UI verification remains open.
 
 ## Phase 2 — Tauri/Svelte app shell
 **Status: Done — debug APK installed on device, pairs with the real bridge, and displays real state**
@@ -104,4 +104,4 @@ Status legend: **Not started**, **Active**, **Blocked**, **Done**. Do not mark i
 
 ## Immediate next action
 
-Get PR [#3](https://github.com/xeriomy/omp-mobile/pull/3) approved and merged to `main`. Then publish `v0.0.1`, verify both release assets and `.sha256` files, and re-run the HTTPS installer in the Android PRoot environment. Install APK `omp-client-android-debug-00a11463231efeceb419c6bfcff28cf9b9384658` (SHA-256 `c98a748613f113b882bd54190df4895d2a140e8cffb6e095b2d96354628dd7ac`) on the Android 15 device and record evidence for auto-detection, capabilities validation, manual URL fallback, saved-URL clearing, and pairing against a real background bridge. Do not start the Phase 3 prompt path before that evidence exists.
+Get PR [#3](https://github.com/xeriomy/omp-mobile/pull/3) approved and merged to `main`. Then publish `v0.0.1`, verify both release assets and `.sha256` files, and re-run the HTTPS installer in the Android PRoot environment. Install APK `omp-client-android-debug-00a11463231efeceb419c6bfcff28cf9b9384658` (SHA-256 `c98a748613f113b882bd54190df4895d2a140e8cffb6e095b2d96354628dd7ac`) on the Android 15 device against the `v0.0.1` bridge and record evidence for auto-detection, capabilities validation, manual URL fallback, saved-URL clearing, and pairing. Do not start the Phase 3 prompt path before that evidence exists.

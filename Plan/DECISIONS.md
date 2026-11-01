@@ -114,7 +114,7 @@ Use one entry per meaningful decision. Update status when evidence changes the d
 
 ## ADR-015 — GitHub Releases installer and two glibc targets
 
-- **Status:** Accepted and executed (test release `v0.1.0`); official `v0.0.1` awaits PR #3 merge
+- **Status:** Accepted and executed; official `v0.0.1` published and installer-tested over HTTPS
 - **Decision:** Publish `omp-bridge-aarch64-unknown-linux-gnu` and `omp-bridge-x86_64-unknown-linux-gnu` with SHA-256 files from a `v*` GitHub Release. Install with `scripts/install-bridge.sh`, which verifies the checksum, never uses `sudo`, distinguishes PRoot from ordinary root, rejects native Termux/musl/unknown architectures, and refuses to replace a running bridge. Keep `omp-bridge update` instructions-only; the installer is the upgrade path. `uninstall` keeps config unless `--purge` and requires `--yes` unless `--dry-run`.
 - **Context:** The first release must be installable without a Rust toolchain, and the host is glibc Linux under PRoot. Native Termux uses bionic and cannot run these binaries. Self-update would add signature/rollback complexity before the release process is proven. The Android 15 PRoot environment reports `id -u` as `0`, so a plain root refusal blocks the intended device path.
 - **Alternatives:** Self-update (rejected for the first release); `cargo install` (rejected: requires a toolchain); Termux package (rejected until built and tested); curl-to-shell without checksum (rejected); accepting all root installs (rejected: weakens the guard for ordinary root).

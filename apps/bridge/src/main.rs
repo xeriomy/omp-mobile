@@ -223,11 +223,30 @@ async fn run() -> Result<(), String> {
 
 async fn setup(paths: &ConfigPaths, overrides: &ConfigOverrides) -> Result<(), String> {
     let existing = load_config(paths).map_err(|error| error.to_string())?;
-    let workspace = workspace_for(existing.as_ref(), overrides)?;
-    let saved_bin = existing.as_ref().map(|config| config.omp_bin.as_path());
 
     println!("OMP Bridge {BRIDGE_VERSION} setup");
     println!("  Platform:  {}", format_platform());
+
+    let stored = initialize_configuration(paths, overrides, existing.as_ref()).await?;
+    save_config(paths, &stored).map_err(|error| error.to_string())?;
+
+    println!("  Saved:     {}", paths.config_file.display());
+    println!();
+    println!("Next: omp-bridge start");
+    Ok(())
+}
+
+/// Shared discovery/validation/configuration path used by `setup` and the
+/// first-run initialization inside `start`. Both produce the same stored
+/// configuration shape and go through the same validation.
+async fn initialize_configuration(
+    paths: &ConfigPaths,
+    overrides: &ConfigOverrides,
+    existing: Option<&StoredConfig>,
+) -> Result<StoredConfig, String> {
+    let workspace = workspace_for(existing, overrides)?;
+    let saved_bin = existing.map(|config| config.omp_bin.as_path());
+
     println!("  Workspace: {}", workspace.display());
     println!("  Config:    {}", paths.config_file.display());
 
@@ -239,21 +258,21 @@ async fn setup(paths: &ConfigPaths, overrides: &ConfigOverrides) -> Result<(), S
             .first()
             .map(|error| format!("{}: {}", error.code, error.message))
             .unwrap_or_else(|| "no usable OMP installation found".to_owned());
-        format!("{detail}\nInstall OMP or pass --omp-bin, then run setup again.")
+        format!("{detail}\nInstall OMP or pass --omp-bin, then run `omp-bridge start` again.")
     })?;
 
     let startup_timeout = overrides
         .startup_timeout_secs
-        .or_else(|| existing.as_ref().map(|config| config.startup_timeout_secs))
+        .or_else(|| existing.map(|config| config.startup_timeout_secs))
         .unwrap_or(DEFAULT_STARTUP_TIMEOUT_SECS);
     let request_timeout = overrides
         .request_timeout_secs
-        .or_else(|| existing.as_ref().map(|config| config.request_timeout_secs))
+        .or_else(|| existing.map(|config| config.request_timeout_secs))
         .unwrap_or(DEFAULT_REQUEST_TIMEOUT_SECS);
     let model = overrides
         .model
         .clone()
-        .or_else(|| existing.as_ref().and_then(|config| config.model.clone()));
+        .or_else(|| existing.and_then(|config| config.model.clone()));
 
     println!(
         "  Checking a real OMP RPC startup (up to {}s)...",
@@ -267,16 +286,26 @@ async fn setup(paths: &ConfigPaths, overrides: &ConfigOverrides) -> Result<(), S
         Duration::from_secs(request_timeout),
     )
     .await
-    .map_err(|error| format!("{}: {}", error.code, error.message))?;
+    .map_err(|error| {
+        let base = format!("{}: {}", error.code, error.message);
+        if error.code == "OMP_MISSING_MODEL" {
+            format!(
+                "{base}\nConfigure the model in your existing OMP installation (or pass \
+                 --model), then run `omp-bridge start` again."
+            )
+        } else {
+            base
+        }
+    })?;
 
-    let mut stored =
-        existing.unwrap_or_else(|| StoredConfig::new(verified.path.clone(), workspace.clone()));
+    let mut stored = existing
+        .cloned()
+        .unwrap_or_else(|| StoredConfig::new(verified.path.clone(), workspace.clone()));
     stored.omp_bin = verified.path.clone();
     stored.omp_version = Some(verified.version.clone());
     stored.workspace = workspace;
     stored.apply_overrides(overrides);
     stored.validate().map_err(|error| error.to_string())?;
-    save_config(paths, &stored).map_err(|error| error.to_string())?;
 
     println!(
         "  OMP:       {} ({})",
@@ -289,10 +318,37 @@ async fn setup(paths: &ConfigPaths, overrides: &ConfigOverrides) -> Result<(), S
     if let Some(model) = &verified.model {
         println!("  Model:     {model}");
     }
-    println!("  Saved:     {}", paths.config_file.display());
-    println!();
-    println!("Next: omp-bridge start");
-    Ok(())
+    Ok(stored)
+}
+
+/// Load the saved configuration for a normal start, or run first-run
+/// initialization and persist it atomically when none exists. An existing but
+/// damaged configuration is never treated as fresh and never overwritten.
+async fn ensure_stored_config(
+    paths: &ConfigPaths,
+    overrides: &ConfigOverrides,
+) -> Result<StoredConfig, String> {
+    match load_config(paths) {
+        Ok(Some(mut stored)) => {
+            stored.apply_overrides(overrides);
+            stored.validate().map_err(|error| error.to_string())?;
+            Ok(stored)
+        }
+        Ok(None) => {
+            println!("OMP Bridge {BRIDGE_VERSION}");
+            println!("First run detected. Initializing bridge...");
+            let stored = initialize_configuration(paths, overrides, None).await?;
+            save_config(paths, &stored).map_err(|error| error.to_string())?;
+            println!("  Saved:     {}", paths.config_file.display());
+            println!();
+            Ok(stored)
+        }
+        Err(error) => Err(format!(
+            "saved configuration {} is invalid: {error}\nFix or back it up and remove it, then \
+             run `omp-bridge setup`.",
+            paths.config_file.display()
+        )),
+    }
 }
 
 async fn start(
@@ -300,11 +356,7 @@ async fn start(
     overrides: &ConfigOverrides,
     args: StartArgs,
 ) -> Result<(), String> {
-    let mut stored = load_config(paths)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "omp-bridge is not configured; run `omp-bridge setup` first".to_owned())?;
-    stored.apply_overrides(overrides);
-    stored.validate().map_err(|error| error.to_string())?;
+    let stored = ensure_stored_config(paths, overrides).await?;
     let config = stored
         .to_bridge_config()
         .map_err(|error| error.to_string())?;
@@ -527,7 +579,10 @@ fn config_command(
                 println!("  Config:  {}", paths.config_file.display());
                 println!("  Runtime: {}", paths.runtime_dir.display());
                 println!("  Logs:    {}", paths.log_file.display());
-                println!("Run `omp-bridge setup` to detect OMP and save configuration.");
+                println!(
+                    "Run `omp-bridge start` to initialize automatically, or \
+`omp-bridge setup` for manual configuration."
+                );
             }
             return Ok(());
         }

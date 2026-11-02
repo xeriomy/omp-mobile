@@ -1,5 +1,7 @@
 # Current Checkpoint
 
+> **2026-11-02 — first-run auto-initialization:** `omp-bridge start` now initializes a missing configuration itself (shared `initialize_configuration`, atomic save after real RPC verification, workspace = current directory) and starts in the background; `setup` remains optional. Branch `first-run-auto-bootstrap`, commit `24dc271`, PR [#6](https://github.com/xeriomy/omp-mobile/pull/6), CI **PASS** (run `41376042378`). Host tests `93 passed, 1 ignored`; real-OMP smoke in an isolated `OMP_BRIDGE_HOME` passed. Awaiting user merge approval.
+
 > Phase 1.5 bridge installer, OMP discovery, persistent configuration, background lifecycle, and mobile loopback auto-detection are implemented and tested on the host against real OMP `18.14.0`. PRoot-aware root handling, exact-tag release checkout, and no-silent-fallback discovery are added. The Phase 1.5 APK is built by CI but not yet installed on a device, and the first official `v0.0.1` release awaits merge approval. Measured on 2026-10-31.
 
 ## Snapshot

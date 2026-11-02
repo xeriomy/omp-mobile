@@ -77,14 +77,21 @@ curl -fsSL https://raw.githubusercontent.com/xeriomy/omp-mobile/main/scripts/ins
 Then:
 
 ```sh
-omp-bridge setup    # discover OMP, verify a real RPC startup, save config
-omp-bridge start    # start detached and print the pairing code once
-omp-bridge status
-omp-bridge logs --lines 100
-omp-bridge stop
+omp-bridge start    # first run initializes config, then starts detached
 ```
 
-`setup` checks `--omp-bin`, `OMP_BRIDGE_OMP_BIN`, saved configuration, `PATH`,
+On the first run `start` discovers OMP, verifies a real RPC startup, defaults
+the workspace to the current directory, saves the configuration atomically, and
+starts detached, printing the pairing code once. No `setup` step is required.
+The saves run only when every check succeeds. `omp-bridge setup` remains
+available for explicit configuration and reconfiguration, and `omp-bridge
+doctor` helps diagnose problems.
+
+Subsequent starts reuse the saved configuration; they never rewrite it and never
+repeat first-run initialization. OMP must already be installed separately with a
+usable model configured — the bridge never installs, updates, or configures it.
+
+`start` checks `--omp-bin`, `OMP_BRIDGE_OMP_BIN`, saved configuration, `PATH`,
 and a fixed list of user install locations, in that order. It accepts OMP `18.x`
 at or above `18.13.3` and requires a real `ready`/negotiation/`get_state`
 sequence before saving.
@@ -99,7 +106,6 @@ For a local development build instead of a release asset:
 
 ```sh
 cargo build -p omp-bridge --release
-./target/release/omp-bridge setup --omp-bin /path/to/omp --workspace /path/to/workspace
 ./target/release/omp-bridge start
 ```
 

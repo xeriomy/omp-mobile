@@ -23,9 +23,9 @@ access, or automatic OMP installation/update/configuration.
 
 | Command | Behavior |
 |---|---|
-| `omp-bridge setup` | Discover OMP, run a real RPC startup check, and save configuration. |
-| `omp-bridge start` | Start the bridge detached in the background. |
-| `omp-bridge start --foreground` | Stay attached; `Ctrl+C` stops the bridge and its OMP child. |
+| `omp-bridge setup` | Explicitly discover OMP, run a real RPC startup check, and save configuration. Optional: `start` performs the same steps on first run. |
+| `omp-bridge start` | Load the saved configuration, or on first run initialize it with the `setup` pipeline (discover, verify, workspace defaults to the current directory, atomic save), then start detached in the background. A stored-but-invalid configuration is always reported, never rewritten. |
+| `omp-bridge start --foreground` | Same initialization behavior, then stay attached; `Ctrl+C` stops the bridge and its OMP child. |
 | `omp-bridge stop` | Stop the recorded bridge process and clean up an orphaned OMP child. |
 | `omp-bridge restart` | Stop, then start in the background. |
 | `omp-bridge status [--json]` | Report phase, PID, listener, engine, OMP, model, workspace, log path, and platform. |

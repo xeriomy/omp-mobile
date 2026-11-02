@@ -46,8 +46,13 @@ impl TestEnv {
             // HOME; pin HOME to the (empty) test home so a host-installed OMP
             // cannot leak into the tests.
             .env("HOME", &self.home)
-            .env_remove("OMP_BRIDGE_RUNTIME_DIR")
-            .env_remove("OMP_BRIDGE_LOG_DIR")
+            // Pin runtime and log directories per test. A CI-provided
+            // XDG_RUNTIME_DIR would otherwise make every test share one
+            // bridge.pid and bridge.lock.
+            .env("OMP_BRIDGE_RUNTIME_DIR", self.home.join("run"))
+            .env("OMP_BRIDGE_LOG_DIR", self.home.join("logs"))
+            .env_remove("XDG_RUNTIME_DIR")
+            .env_remove("XDG_CONFIG_HOME")
             .env_remove("OMP_BRIDGE_OMP_BIN")
             .env_remove("OMP_BRIDGE_WORKSPACE")
             .env_remove("OMP_BRIDGE_LISTEN")
